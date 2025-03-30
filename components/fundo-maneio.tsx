@@ -389,6 +389,16 @@ export function FundoManeio() {
     setIsDetalhesDialogOpen(true)
   }
 
+  // Expor a função adicionarMovimentoFundoManeio para o componente pai
+  useEffect(() => {
+    // @ts-ignore
+    window.fundoManeio = {
+      adicionarMovimentoFundoManeio,
+      setNovoMovimento,
+      setIsAddDialogOpen,
+    }
+  }, [fundosManeio, saldoInicial])
+
   return (
     <PrintLayout title="Fundo de Maneio">
       <Card>

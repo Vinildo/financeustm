@@ -151,6 +151,19 @@ export function PagamentosTable() {
     Array<Pagamento & { fornecedorId: string; fornecedorNome: string }>
   >([])
 
+  // Primeiro, vamos adicionar estados para controlar o redirecionamento após adicionar um pagamento
+  // Adicione estes estados logo após os estados existentes (por volta da linha 100)
+
+  const [redirectToChecks, setRedirectToChecks] = useState(false)
+  const [redirectToFundoManeio, setRedirectToFundoManeio] = useState(false)
+  const [novoPagamentoAdicionado, setNovoPagamentoAdicionado] = useState<{
+    id: string
+    fornecedorId: string
+    fornecedorNome: string
+    referencia: string
+    valor: number
+  } | null>(null)
+
   // Process payments when fornecedores changes
   useEffect(() => {
     if (!fornecedores || fornecedores.length === 0) {
@@ -431,9 +444,10 @@ export function PagamentosTable() {
       }
 
       // Adicionar o pagamento
+      const pagamentoId = `pagamento-${Date.now()}`
       const pagamentoParaAdicionar = {
         ...novoPagamento,
-        id: `pagamento-${Date.now()}`,
+        id: pagamentoId,
         estado: "pendente",
         dataPagamento: null,
         facturaRecebida: false,
@@ -459,6 +473,22 @@ export function PagamentosTable() {
       try {
         const resultado = addPagamento(fornecedorId, pagamentoParaAdicionar as Pagamento)
         console.log("Resultado da adição do pagamento:", resultado)
+
+        // Armazenar informações do pagamento adicionado para uso posterior
+        setNovoPagamentoAdicionado({
+          id: pagamentoId,
+          fornecedorId: fornecedorId,
+          fornecedorNome: fornecedorNome,
+          referencia: novoPagamento.referencia,
+          valor: novoPagamento.valor,
+        })
+
+        // Verificar o método de pagamento e configurar o redirecionamento
+        if (novoPagamento.metodo === "cheque") {
+          setRedirectToChecks(true)
+        } else if (novoPagamento.metodo === "fundo de maneio") {
+          setRedirectToFundoManeio(true)
+        }
       } catch (pagamentoError) {
         console.error("Erro ao adicionar pagamento:", pagamentoError)
         throw pagamentoError
@@ -1466,6 +1496,58 @@ export function PagamentosTable() {
       }
     }
   }
+
+  // Agora, vamos adicionar os diálogos de redirecionamento
+  // Adicione este código antes do return final do componente (antes de "return (")
+
+  // Efeito para abrir automaticamente o diálogo de cheque quando necessário
+  useEffect(() => {
+    if (redirectToChecks && novoPagamentoAdicionado) {
+      // Configurar o pagamento para cheque
+      const pagamentoParaChequeObj = {
+        ...todosOsPagamentos.find((p) => p.id === novoPagamentoAdicionado.id),
+        fornecedorId: novoPagamentoAdicionado.fornecedorId,
+        fornecedorNome: novoPagamentoAdicionado.fornecedorNome,
+      }
+
+      if (pagamentoParaChequeObj) {
+        setPagamentoParaCheque(pagamentoParaChequeObj)
+        setNovoCheque({
+          numero: "",
+          dataEmissao: new Date(),
+        })
+        setIsEmitirChequeDialogOpen(true)
+
+        // Resetar o estado de redirecionamento
+        setRedirectToChecks(false)
+        setNovoPagamentoAdicionado(null)
+      }
+    }
+  }, [redirectToChecks, novoPagamentoAdicionado, todosOsPagamentos])
+
+  // Efeito para abrir automaticamente o diálogo de fundo de maneio quando necessário
+  useEffect(() => {
+    if (redirectToFundoManeio && novoPagamentoAdicionado) {
+      // Configurar o pagamento para fundo de maneio
+      const pagamentoParaFundoObj = {
+        ...todosOsPagamentos.find((p) => p.id === novoPagamentoAdicionado.id),
+        fornecedorId: novoPagamentoAdicionado.fornecedorId,
+        fornecedorNome: novoPagamentoAdicionado.fornecedorNome,
+      }
+
+      if (pagamentoParaFundoObj) {
+        setPagamentoParaFundoManeio(pagamentoParaFundoObj)
+        setDescricaoFundoManeio(
+          `Pagamento a ${pagamentoParaFundoObj.fornecedorNome} - Ref: ${pagamentoParaFundoObj.referencia}`,
+        )
+        setIsFundoManeioDialogOpen(true)
+
+        // Resetar o estado de redirecionamento
+        setRedirectToFundoManeio(false)
+        setNovoPagamentoAdicionado(null)
+      }
+    }
+  }, [redirectToFundoManeio, novoPagamentoAdicionado, todosOsPagamentos])
 
   if (isLoading) {
     return (

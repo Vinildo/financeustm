@@ -44,6 +44,9 @@ type Cheque = {
 }
 
 // Modificar o componente ControloCheques para incluir a integração com pagamentos
+// Primeiro, vamos exportar a função handleAddCheque para que ela possa ser chamada externamente
+
+// Modifique a função handleAddCheque para exportá-la
 export function ControloCheques() {
   const { fornecedores, atualizarPagamento } = useAppContext()
   // Modificar o componente ControloCheques para carregar cheques do localStorage
@@ -212,8 +215,22 @@ export function ControloCheques() {
           })
         }
       }
+
+      return chequeToAdd
     }
+    return null
   }
+
+  // Expor a função handleAddCheque e o estado para o componente pai
+  useEffect(() => {
+    // @ts-ignore
+    window.controloCheques = {
+      handleAddCheque,
+      setNewCheque,
+      setPagamentoSelecionadoId,
+      setIsAddDialogOpen,
+    }
+  }, [newCheque, pagamentoSelecionadoId])
 
   // Modificar a função handleCompensarCheque para salvar no localStorage
   // Substitua a função handleCompensarCheque existente com esta versão:

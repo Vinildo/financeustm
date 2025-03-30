@@ -26,7 +26,7 @@ export function PrintLayout({ children, title }: PrintLayoutProps) {
       {children}
 
       <div className="print:block hidden mt-8 text-sm text-gray-500 border-t pt-4">
-        <p>Tesouraria By VM - Criado por Vinildo Mondlane © 2025</p>
+        <p>FINANCE-VM - Criado por Vinildo Mondlane © 2025</p>
         <p>Processado por computador</p>
         <p>Usuário: {user?.username}</p>
         <p>Data e hora: {format(currentDateTime, "dd/MM/yyyy HH:mm:ss", { locale: pt })}</p>
