@@ -1,319 +1,168 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { toast } from "@/components/ui/use-toast"
-import { useAppContext } from "@/contexts/AppContext"
-import type { Pagamento } from "@/types/fornecedor"
+import { useState } from "react"
 import { format } from "date-fns"
 import { pt } from "date-fns/locale"
-import { Check, X, Clock } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Check, X, AlertTriangle, Clock } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { useAppContext } from "@/contexts/AppContext"
+import { useAuth } from "@/hooks/use-auth"
+import { toast } from "@/components/ui/use-toast"
 
 interface WorkflowApprovalProps {
-  pagamento: Pagamento & { fornecedorNome: string; fornecedorId: string }
+  pagamento: any
   isOpen: boolean
   onClose: () => void
 }
 
 export function WorkflowApproval({ pagamento, isOpen, onClose }: WorkflowApprovalProps) {
-  const { updatePagamento, currentUser, addNotification, fornecedores } = useAppContext()
+  const { user } = useAuth()
+  const { updateWorkflowStatus } = useAppContext()
   const [comments, setComments] = useState("")
-  const [localPagamento, setLocalPagamento] = useState<
-    (Pagamento & { fornecedorNome: string; fornecedorId: string }) | null
-  >(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Sincronizar o pagamento local com o pagamento recebido por props
-  useEffect(() => {
-    if (pagamento) {
-      setLocalPagamento(pagamento)
+  // Verificar se o usuário atual pode aprovar/rejeitar o pagamento atual
+  const canApprove = () => {
+    if (!pagamento || !pagamento.workflow || !user) return false
+
+    // Se o workflow já foi concluído, não permitir mais aprovações/rejeições
+    if (pagamento.workflow.status === "approved" || pagamento.workflow.status === "rejected") {
+      return false
     }
-  }, [pagamento])
 
-  // Verificar se o pagamento existe no fornecedor atual
-  useEffect(() => {
-    if (pagamento && fornecedores) {
-      const fornecedor = fornecedores.find((f) => f.id === pagamento.fornecedorId)
-      if (fornecedor) {
-        const pagamentoAtualizado = fornecedor.pagamentos.find((p) => p.id === pagamento.id)
-        if (pagamentoAtualizado) {
-          setLocalPagamento({
-            ...pagamentoAtualizado,
-            fornecedorId: pagamento.fornecedorId,
-            fornecedorNome: pagamento.fornecedorNome,
-          })
-        }
-      }
-    }
-  }, [pagamento, fornecedores])
+    const currentStep = pagamento.workflow.currentStep
+    const currentStepData = pagamento.workflow.steps[currentStep]
 
-  if (!localPagamento || !localPagamento.workflow) {
-    return null
+    if (!currentStepData) return false
+
+    // Verificar se o usuário atual é o aprovador do passo atual
+    // Ou se o usuário é admin (pode aprovar qualquer passo)
+    return (
+      user.role === "admin" ||
+      currentStepData.username === user.username ||
+      (currentStepData.role && currentStepData.role === user.role)
+    )
   }
 
-  const currentStepIndex = localPagamento.workflow.currentStep
-  const currentStep = localPagamento.workflow.steps[currentStepIndex]
-
-  // Verificar se o usuário atual pode aprovar este passo
-  const canApprove =
-    currentUser &&
-    (currentUser.username === currentStep?.username ||
-      currentUser.role === currentStep?.role ||
-      currentUser.role === "admin")
-
   const handleApprove = async () => {
-    if (!canApprove) {
+    if (!updateWorkflowStatus) {
       toast({
-        title: "Acesso negado",
-        description: "Você não tem permissão para aprovar este pagamento.",
+        title: "Erro",
+        description: "Função de atualização de workflow não disponível.",
         variant: "destructive",
       })
       return
     }
 
     try {
-      console.log("Iniciando aprovação do pagamento:", localPagamento.id)
-
-      // Verificar se o pagamento ainda existe no fornecedor
-      const fornecedor = fornecedores.find((f) => f.id === localPagamento.fornecedorId)
-      if (!fornecedor) {
-        console.error("Fornecedor não encontrado:", localPagamento.fornecedorId)
-        toast({
-          title: "Erro",
-          description: "Fornecedor não encontrado. Por favor, atualize a página e tente novamente.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      const pagamentoAtual = fornecedor.pagamentos.find((p) => p.id === localPagamento.id)
-      if (!pagamentoAtual) {
-        console.error("Pagamento não encontrado no fornecedor:", localPagamento.id)
-        toast({
-          title: "Erro",
-          description: "Pagamento não encontrado. Por favor, atualize a página e tente novamente.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Atualizar o passo atual
-      const updatedSteps = [...localPagamento.workflow!.steps]
-      updatedSteps[currentStepIndex] = {
-        ...updatedSteps[currentStepIndex],
-        status: "approved",
-        date: new Date(),
-        comments: comments.trim() || undefined,
-      }
-
-      // Verificar se há mais passos
-      const nextStepIndex = currentStepIndex + 1
-      const isLastStep = nextStepIndex >= updatedSteps.length
+      setIsSubmitting(true)
+      console.log("Aprovando pagamento:", pagamento.id)
 
       // Atualizar o status do workflow
-      const updatedWorkflow = {
-        ...localPagamento.workflow!,
-        steps: updatedSteps,
-        currentStep: isLastStep ? currentStepIndex : nextStepIndex,
-        status: isLastStep ? "approved" : "in_progress",
-      }
+      await updateWorkflowStatus(pagamento.id, pagamento.fornecedorId, "approved", comments)
 
-      // Atualizar o pagamento
-      const updatedPagamento = {
-        ...pagamentoAtual,
-        workflow: updatedWorkflow,
-      }
-
-      // Se for o último passo (Reitor) e estiver aprovado, marcar o pagamento como pago
-      if (isLastStep && currentStep.role === "rector") {
-        updatedPagamento.estado = "pago"
-        updatedPagamento.dataPagamento = new Date()
-
-        toast({
-          title: "Pagamento aprovado e marcado como pago",
-          description: "O pagamento foi totalmente aprovado pelo Reitor e foi automaticamente marcado como pago.",
-        })
-      }
-
-      console.log("Atualizando pagamento:", updatedPagamento)
-      await updatePagamento(localPagamento.fornecedorId, updatedPagamento)
-
-      // Notificar o próximo aprovador, se houver
-      if (!isLastStep) {
-        const nextStep = updatedSteps[nextStepIndex]
-
-        // Mensagem específica para o Reitor quando a Diretora Financeira aprovou
-        const message =
-          currentStepIndex === 0
-            ? `O pagamento ${localPagamento.referencia} para ${localPagamento.fornecedorNome} no valor de ${localPagamento.valor.toFixed(2)} MT foi aprovado pela Diretora Financeira e aguarda sua aprovação final.`
-            : `O pagamento ${localPagamento.referencia} para ${localPagamento.fornecedorNome} no valor de ${localPagamento.valor.toFixed(2)} MT aguarda sua aprovação.`
-
-        addNotification({
-          userId: nextStep.username,
-          title: "Pagamento aguardando aprovação",
-          message: message,
-          type: "payment_approval",
-          relatedId: localPagamento.id,
-          actionUrl: `/dashboard?tab=workflow`,
-        })
-      } else {
-        // Notificar que o pagamento foi totalmente aprovado
-        addNotification({
-          userId: "all", // Notificar todos os usuários relevantes
-          title: "Pagamento totalmente aprovado",
-          message: `O pagamento ${localPagamento.referencia} para ${localPagamento.fornecedorNome} foi aprovado pelo Reitor e está pronto para ser processado.`,
-          type: "payment_approved",
-          relatedId: localPagamento.id,
-        })
-
-        // Atualizar o estado do pagamento para "aprovado" quando o fluxo de aprovação estiver completo
-        const fullyApprovedPagamento = {
-          ...updatedPagamento,
-          estado: "pago",
-          dataPagamento: new Date(),
-        }
-
-        await updatePagamento(localPagamento.fornecedorId, fullyApprovedPagamento)
-      }
-
-      if (!isLastStep) {
-        toast({
-          title: "Pagamento aprovado",
-          description: "O pagamento foi aprovado e enviado para o próximo nível de aprovação.",
-        })
-      }
+      toast({
+        title: "Aprovado com sucesso",
+        description: "O pagamento foi aprovado e avançou para o próximo passo do workflow.",
+      })
 
       onClose()
     } catch (error) {
       console.error("Erro ao aprovar pagamento:", error)
       toast({
-        title: "Erro ao aprovar pagamento",
+        title: "Erro ao aprovar",
         description: "Ocorreu um erro ao aprovar o pagamento. Por favor, tente novamente.",
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
   const handleReject = async () => {
-    if (!canApprove) {
+    if (!updateWorkflowStatus) {
       toast({
-        title: "Acesso negado",
-        description: "Você não tem permissão para rejeitar este pagamento.",
+        title: "Erro",
+        description: "Função de atualização de workflow não disponível.",
         variant: "destructive",
       })
       return
     }
 
-    if (!comments.trim()) {
+    if (!comments) {
       toast({
         title: "Comentário obrigatório",
-        description: "Por favor, forneça um motivo para a rejeição do pagamento.",
+        description: "Por favor, forneça um comentário explicando o motivo da rejeição.",
         variant: "destructive",
       })
       return
     }
 
     try {
-      // Verificar se o pagamento ainda existe no fornecedor
-      const fornecedor = fornecedores.find((f) => f.id === localPagamento.fornecedorId)
-      if (!fornecedor) {
-        toast({
-          title: "Erro",
-          description: "Fornecedor não encontrado. Por favor, atualize a página e tente novamente.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      const pagamentoAtual = fornecedor.pagamentos.find((p) => p.id === localPagamento.id)
-      if (!pagamentoAtual) {
-        toast({
-          title: "Erro",
-          description: "Pagamento não encontrado. Por favor, atualize a página e tente novamente.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Atualizar o passo atual
-      const updatedSteps = [...localPagamento.workflow!.steps]
-      updatedSteps[currentStepIndex] = {
-        ...updatedSteps[currentStepIndex],
-        status: "rejected",
-        date: new Date(),
-        comments: comments,
-      }
+      setIsSubmitting(true)
+      console.log("Rejeitando pagamento:", pagamento.id)
 
       // Atualizar o status do workflow
-      const updatedWorkflow = {
-        ...localPagamento.workflow!,
-        steps: updatedSteps,
-        status: "rejected",
-      }
-
-      // Atualizar o pagamento
-      const updatedPagamento = {
-        ...pagamentoAtual,
-        workflow: updatedWorkflow,
-      }
-
-      await updatePagamento(localPagamento.fornecedorId, updatedPagamento)
-
-      // Notificar o solicitante que o pagamento foi rejeitado
-      addNotification({
-        userId: "all", // Notificar todos os usuários relevantes
-        title: "Pagamento rejeitado",
-        message: `O pagamento ${localPagamento.referencia} para ${localPagamento.fornecedorNome} foi rejeitado. Motivo: ${comments}`,
-        type: "payment_rejected",
-        relatedId: localPagamento.id,
-      })
+      await updateWorkflowStatus(pagamento.id, pagamento.fornecedorId, "rejected", comments)
 
       toast({
-        title: "Pagamento rejeitado",
-        description: "O pagamento foi rejeitado e o solicitante foi notificado.",
+        title: "Rejeitado com sucesso",
+        description: "O pagamento foi rejeitado e o workflow foi encerrado.",
       })
 
       onClose()
     } catch (error) {
       console.error("Erro ao rejeitar pagamento:", error)
       toast({
-        title: "Erro ao rejeitar pagamento",
+        title: "Erro ao rejeitar",
         description: "Ocorreu um erro ao rejeitar o pagamento. Por favor, tente novamente.",
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
-  const getStepStatusBadge = (status: string) => {
-    switch (status) {
-      case "approved":
-        return (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 flex items-center">
-            <Check className="mr-1 h-3 w-3" /> Aprovado
-          </Badge>
-        )
-      case "rejected":
-        return (
-          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 flex items-center">
-            <X className="mr-1 h-3 w-3" /> Rejeitado
-          </Badge>
-        )
-      case "pending":
-        return (
-          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 flex items-center">
-            <Clock className="mr-1 h-3 w-3" /> Pendente
-          </Badge>
-        )
-      default:
-        return <Badge variant="outline">{status}</Badge>
+  if (!pagamento || !pagamento.workflow) {
+    return null
+  }
+
+  const getStepStatusIcon = (step: any, index: number) => {
+    if (step.status === "approved") {
+      return <Check className="h-5 w-5 text-green-500" />
+    } else if (step.status === "rejected") {
+      return <X className="h-5 w-5 text-red-500" />
+    } else if (index === pagamento.workflow.currentStep) {
+      return <Clock className="h-5 w-5 text-yellow-500" />
+    } else {
+      return <Clock className="h-5 w-5 text-gray-300" />
+    }
+  }
+
+  const getStepStatusClass = (step: any, index: number) => {
+    if (step.status === "approved") {
+      return "text-green-700 bg-green-50 border-green-200"
+    } else if (step.status === "rejected") {
+      return "text-red-700 bg-red-50 border-red-200"
+    } else if (index === pagamento.workflow.currentStep) {
+      return "text-yellow-700 bg-yellow-50 border-yellow-200"
+    } else {
+      return "text-gray-500 bg-gray-50 border-gray-200"
     }
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Aprovação de Pagamento</DialogTitle>
           <DialogDescription>
@@ -321,98 +170,134 @@ export function WorkflowApproval({ pagamento, isOpen, onClose }: WorkflowApprova
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-6 py-4">
+          {/* Detalhes do pagamento */}
           <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
             <h3 className="font-medium text-gray-900 mb-2">Detalhes do Pagamento</h3>
-            <div className="space-y-1">
-              <p>
-                <span className="font-medium">Referência:</span> {localPagamento.referencia}
-              </p>
-              <p>
-                <span className="font-medium">Fornecedor:</span> {localPagamento.fornecedorNome}
-              </p>
-              <p>
-                <span className="font-medium">Valor:</span> {localPagamento.valor.toFixed(2)} MT
-              </p>
-              <p>
-                <span className="font-medium">Vencimento:</span>{" "}
-                {format(new Date(localPagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}
-              </p>
-              <p>
-                <span className="font-medium">Departamento:</span> {localPagamento.departamento}
-              </p>
-              <p>
-                <span className="font-medium">Descrição:</span> {localPagamento.descricao}
-              </p>
-              {localPagamento.observacoes && (
-                <p>
-                  <span className="font-medium">Observações:</span> {localPagamento.observacoes}
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <p className="text-muted-foreground">Referência:</p>
+                <p className="font-medium">{pagamento.referencia}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Fornecedor:</p>
+                <p className="font-medium">{pagamento.fornecedorNome}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Valor:</p>
+                <p className="font-medium">{pagamento.valor.toFixed(2)} MT</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Vencimento:</p>
+                <p className="font-medium">
+                  {format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}
                 </p>
-              )}
+              </div>
+              <div className="col-span-2">
+                <p className="text-muted-foreground">Departamento:</p>
+                <p className="font-medium">{pagamento.departamento || "N/A"}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-muted-foreground">Descrição:</p>
+                <p className="font-medium">{pagamento.descricao || "N/A"}</p>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <h3 className="font-medium text-gray-900">Fluxo de Aprovação</h3>
-            <div className="space-y-2">
-              {localPagamento.workflow.steps.map((step, index) => (
-                <div
-                  key={step.id}
-                  className={`p-3 rounded-md border ${index === currentStepIndex ? "border-blue-300 bg-blue-50" : "border-gray-200"}`}
-                >
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium">{step.role}</p>
-                      <p className="text-sm text-gray-500">{step.username}</p>
-                    </div>
-                    <div>{getStepStatusBadge(step.status)}</div>
-                  </div>
-                  {step.date && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {format(new Date(step.date), "dd/MM/yyyy HH:mm", { locale: pt })}
-                    </p>
-                  )}
-                  {step.comments && <p className="text-sm mt-1 bg-gray-100 p-2 rounded">{step.comments}</p>}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {canApprove && currentStep.status === "pending" && (
+          {/* Status do workflow */}
+          <div>
+            <h3 className="font-medium text-gray-900 mb-3">Status de Aprovação</h3>
             <div className="space-y-3">
-              <h3 className="font-medium text-gray-900">Sua Decisão</h3>
-              <Textarea
-                placeholder="Adicione comentários ou observações (obrigatório para rejeição)"
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                className="min-h-[100px]"
-              />
-              <div className="flex justify-between">
-                <Button variant="outline" onClick={onClose}>
-                  Cancelar
-                </Button>
-                <div className="space-x-2">
-                  <Button variant="destructive" onClick={handleReject}>
-                    <X className="mr-2 h-4 w-4" />
-                    Rejeitar
-                  </Button>
-                  <Button variant="default" onClick={handleApprove}>
-                    <Check className="mr-2 h-4 w-4" />
-                    Aprovar
-                  </Button>
-                </div>
+              {pagamento.workflow.steps.map((step: any, index: number) => {
+                const roleName = step.role === "financial_director" ? "Diretora Financeira" : "Reitor"
+                return (
+                  <div
+                    key={index}
+                    className={`p-3 rounded-md border flex items-start ${getStepStatusClass(step, index)}`}
+                  >
+                    <div className="mr-3 mt-0.5">{getStepStatusIcon(step, index)}</div>
+                    <div className="flex-1">
+                      <div className="font-medium">
+                        Passo {index + 1}: {roleName}
+                      </div>
+                      <div className="text-sm">Aprovador: {step.username}</div>
+                      {step.date && (
+                        <div className="text-sm">
+                          Data: {format(new Date(step.date), "dd/MM/yyyy HH:mm", { locale: pt })}
+                        </div>
+                      )}
+                      {step.comments && <div className="text-sm mt-1 italic">"{step.comments}"</div>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Comentários */}
+          <div>
+            <h3 className="font-medium text-gray-900 mb-2">Comentários</h3>
+            <Textarea
+              placeholder="Adicione comentários sobre sua decisão (obrigatório para rejeição)"
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          {/* Aviso se não puder aprovar */}
+          {!canApprove() && pagamento.workflow.status === "in_progress" && (
+            <div className="bg-yellow-50 p-3 rounded-md border border-yellow-200 flex items-start">
+              <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2 mt-0.5" />
+              <div className="text-sm text-yellow-700">
+                Você não tem permissão para aprovar ou rejeitar este pagamento neste momento. Apenas o aprovador
+                designado para o passo atual pode realizar esta ação.
               </div>
             </div>
           )}
 
-          {(!canApprove || currentStep.status !== "pending") && (
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={onClose}>
-                Fechar
-              </Button>
+          {/* Aviso se workflow já concluído */}
+          {(pagamento.workflow.status === "approved" || pagamento.workflow.status === "rejected") && (
+            <div
+              className={`p-3 rounded-md border flex items-start ${
+                pagamento.workflow.status === "approved"
+                  ? "bg-green-50 border-green-200 text-green-700"
+                  : "bg-red-50 border-red-200 text-red-700"
+              }`}
+            >
+              {pagamento.workflow.status === "approved" ? (
+                <Check className="h-5 w-5 text-green-500 mr-2 mt-0.5" />
+              ) : (
+                <X className="h-5 w-5 text-red-500 mr-2 mt-0.5" />
+              )}
+              <div className="text-sm">
+                Este pagamento já foi {pagamento.workflow.status === "approved" ? "aprovado" : "rejeitado"} e o workflow
+                foi concluído.
+              </div>
             </div>
           )}
         </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Fechar
+          </Button>
+          {canApprove() && (
+            <>
+              <Button
+                variant="destructive"
+                onClick={handleReject}
+                disabled={isSubmitting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Rejeitar
+              </Button>
+              <Button onClick={handleApprove} disabled={isSubmitting}>
+                Aprovar
+              </Button>
+            </>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

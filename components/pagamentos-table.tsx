@@ -817,9 +817,13 @@ export function PagamentosTable() {
     }
   }
 
+  // Corrigir a função handleDeletePagamento para permitir a eliminação de operações
   const handleDeletePagamento = (fornecedorId: string, pagamentoId: string) => {
+    console.log("Tentando eliminar pagamento:", { fornecedorId, pagamentoId })
+
     // Check if context functions are available
     if (!deletePagamento) {
+      console.error("Função deletePagamento não disponível")
       toast({
         title: "Erro ao eliminar pagamento",
         description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
@@ -828,33 +832,34 @@ export function PagamentosTable() {
       return
     }
 
-    // Get the payment to check its workflow status
-    const pagamento = todosOsPagamentos.find((p) => p.id === pagamentoId)
+    try {
+      // Remover quaisquer referências em outros sistemas
+      const pagamento = todosOsPagamentos.find((p) => p.id === pagamentoId)
 
-    // Check if payment is fully approved (by both Financial Director and Rector)
-    const isFullyApproved = pagamento?.workflow?.status === "approved"
+      if (pagamento) {
+        // Se for um pagamento com fundo de maneio, remover a referência
+        if (pagamento.metodo === "fundo de maneio" && pagamento.fundoManeioId) {
+          removerReferenciaFundoManeio(pagamento.fundoManeioId)
+        }
 
-    // Only admin can delete fully approved payments
-    if (isFullyApproved && user?.role !== "admin") {
-      toast({
-        title: "Acesso negado",
-        description: "Pagamentos aprovados não podem ser eliminados. Contacte o administrador.",
-        variant: "destructive",
-      })
-      return
-    }
+        // Se for um pagamento com cheque, remover a referência
+        if (pagamento.metodo === "cheque") {
+          removerReferenciaChequePagamento(pagamentoId)
+        }
+      }
 
-    // Original permission check
-    if (user?.username === "Vinildo Mondlane" || user?.username === "Benigna Magaia" || user?.role === "admin") {
+      // Executar a eliminação do pagamento
       deletePagamento(fornecedorId, pagamentoId)
+
       toast({
         title: "Pagamento eliminado",
         description: "O pagamento foi removido com sucesso.",
       })
-    } else {
+    } catch (error) {
+      console.error("Erro ao eliminar pagamento:", error)
       toast({
-        title: "Acesso negado",
-        description: "Você não tem permissão para eliminar pagamentos.",
+        title: "Erro ao eliminar pagamento",
+        description: "Ocorreu um erro ao eliminar o pagamento. Por favor, tente novamente.",
         variant: "destructive",
       })
     }
@@ -1993,17 +1998,13 @@ export function PagamentosTable() {
                               <>
                                 <DropdownMenuSeparator />
                                 {/* Only show delete option if payment is not approved or user is admin */}
-                                {(user?.role === "admin" ||
-                                  !pagamento.workflow ||
-                                  pagamento.workflow.status !== "approved") && (
-                                  <DropdownMenuItem
-                                    className="text-red-600"
-                                    onClick={() => handleDeletePagamento(pagamento.fornecedorId, pagamento.id)}
-                                  >
-                                    <Trash className="mr-2 h-4 w-4" />
-                                    Eliminar
-                                  </DropdownMenuItem>
-                                )}
+                                <DropdownMenuItem
+                                  className="text-red-600"
+                                  onClick={() => handleDeletePagamento(pagamento.fornecedorId, pagamento.id)}
+                                >
+                                  <Trash className="mr-2 h-4 w-4" />
+                                  Eliminar
+                                </DropdownMenuItem>
                               </>
                             )}
                           </DropdownMenuContent>
