@@ -1,18 +1,13 @@
 "use client"
 
+import { DialogFooter } from "@/components/ui/dialog"
+
 import { useState } from "react"
 import { format } from "date-fns"
 import { pt } from "date-fns/locale"
 import { Check, X, AlertTriangle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { useAppContext } from "@/contexts/AppContext"
 import { useAuth } from "@/hooks/use-auth"
@@ -26,7 +21,7 @@ interface WorkflowApprovalProps {
 
 export function WorkflowApproval({ pagamento, isOpen, onClose }: WorkflowApprovalProps) {
   const { user } = useAuth()
-  const { updateWorkflowStatus } = useAppContext()
+  const { updateWorkflowStatus, fornecedores, updatePagamento } = useAppContext()
   const [comments, setComments] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -53,82 +48,179 @@ export function WorkflowApproval({ pagamento, isOpen, onClose }: WorkflowApprova
     )
   }
 
+  // Corrigir as funções handleApprove e handleReject para permitir aprovar e rejeitar no workflow
+
   const handleApprove = async () => {
-    if (!updateWorkflowStatus) {
+    if (!pagamento || !pagamento.workflow) {
       toast({
         title: "Erro",
-        description: "Função de atualização de workflow não disponível.",
+        description: "Dados do pagamento não disponíveis.",
         variant: "destructive",
       })
       return
     }
 
     try {
-      setIsSubmitting(true)
       console.log("Aprovando pagamento:", pagamento.id)
 
+      // Obter o fornecedor e o pagamento atual
+      const fornecedor = fornecedores.find((f) => f.id === pagamento.fornecedorId)
+      if (!fornecedor) {
+        toast({
+          title: "Erro",
+          description: "Fornecedor não encontrado.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const pagamentoAtual = fornecedor.pagamentos.find((p) => p.id === pagamento.id)
+      if (!pagamentoAtual) {
+        toast({
+          title: "Erro",
+          description: "Pagamento não encontrado.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Atualizar o passo atual
+      const updatedSteps = [...pagamento.workflow.steps]
+      const currentStepIndex = pagamento.workflow.currentStep
+      updatedSteps[currentStepIndex] = {
+        ...updatedSteps[currentStepIndex],
+        status: "approved",
+        date: new Date(),
+        comments: comments.trim() || undefined,
+      }
+
+      // Verificar se há mais passos
+      const nextStepIndex = currentStepIndex + 1
+      const isLastStep = nextStepIndex >= updatedSteps.length
+
       // Atualizar o status do workflow
-      await updateWorkflowStatus(pagamento.id, pagamento.fornecedorId, "approved", comments)
+      const updatedWorkflow = {
+        ...pagamento.workflow,
+        steps: updatedSteps,
+        currentStep: isLastStep ? currentStepIndex : nextStepIndex,
+        status: isLastStep ? "approved" : "in_progress",
+      }
+
+      // Atualizar o pagamento
+      const updatedPagamento = {
+        ...pagamentoAtual,
+        workflow: updatedWorkflow,
+      }
+
+      // Se for o último passo e estiver aprovado, marcar o pagamento como pago
+      if (isLastStep && updatedWorkflow.status === "approved") {
+        updatedPagamento.estado = "pago"
+        updatedPagamento.dataPagamento = new Date()
+      }
+
+      // Atualizar o pagamento no fornecedor
+      await updatePagamento(pagamento.fornecedorId, updatedPagamento)
 
       toast({
-        title: "Aprovado com sucesso",
-        description: "O pagamento foi aprovado e avançou para o próximo passo do workflow.",
+        title: "Pagamento aprovado",
+        description: isLastStep
+          ? "O pagamento foi totalmente aprovado."
+          : "O pagamento foi aprovado e enviado para o próximo nível de aprovação.",
       })
 
       onClose()
     } catch (error) {
       console.error("Erro ao aprovar pagamento:", error)
       toast({
-        title: "Erro ao aprovar",
+        title: "Erro ao aprovar pagamento",
         description: "Ocorreu um erro ao aprovar o pagamento. Por favor, tente novamente.",
         variant: "destructive",
       })
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
   const handleReject = async () => {
-    if (!updateWorkflowStatus) {
+    if (!pagamento || !pagamento.workflow) {
       toast({
         title: "Erro",
-        description: "Função de atualização de workflow não disponível.",
+        description: "Dados do pagamento não disponíveis.",
         variant: "destructive",
       })
       return
     }
 
-    if (!comments) {
+    if (!comments.trim()) {
       toast({
         title: "Comentário obrigatório",
-        description: "Por favor, forneça um comentário explicando o motivo da rejeição.",
+        description: "Por favor, forneça um motivo para a rejeição do pagamento.",
         variant: "destructive",
       })
       return
     }
 
     try {
-      setIsSubmitting(true)
       console.log("Rejeitando pagamento:", pagamento.id)
 
+      // Obter o fornecedor e o pagamento atual
+      const fornecedor = fornecedores.find((f) => f.id === pagamento.fornecedorId)
+      if (!fornecedor) {
+        toast({
+          title: "Erro",
+          description: "Fornecedor não encontrado.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const pagamentoAtual = fornecedor.pagamentos.find((p) => p.id === pagamento.id)
+      if (!pagamentoAtual) {
+        toast({
+          title: "Erro",
+          description: "Pagamento não encontrado.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Atualizar o passo atual
+      const updatedSteps = [...pagamento.workflow.steps]
+      const currentStepIndex = pagamento.workflow.currentStep
+      updatedSteps[currentStepIndex] = {
+        ...updatedSteps[currentStepIndex],
+        status: "rejected",
+        date: new Date(),
+        comments: comments,
+      }
+
       // Atualizar o status do workflow
-      await updateWorkflowStatus(pagamento.id, pagamento.fornecedorId, "rejected", comments)
+      const updatedWorkflow = {
+        ...pagamento.workflow,
+        steps: updatedSteps,
+        status: "rejected",
+      }
+
+      // Atualizar o pagamento
+      const updatedPagamento = {
+        ...pagamentoAtual,
+        workflow: updatedWorkflow,
+      }
+
+      // Atualizar o pagamento no fornecedor
+      await updatePagamento(pagamento.fornecedorId, updatedPagamento)
 
       toast({
-        title: "Rejeitado com sucesso",
-        description: "O pagamento foi rejeitado e o workflow foi encerrado.",
+        title: "Pagamento rejeitado",
+        description: "O pagamento foi rejeitado.",
       })
 
       onClose()
     } catch (error) {
       console.error("Erro ao rejeitar pagamento:", error)
       toast({
-        title: "Erro ao rejeitar",
+        title: "Erro ao rejeitar pagamento",
         description: "Ocorreu um erro ao rejeitar o pagamento. Por favor, tente novamente.",
         variant: "destructive",
       })
-    } finally {
-      setIsSubmitting(false)
     }
   }
 

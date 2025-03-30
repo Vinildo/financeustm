@@ -818,6 +818,8 @@ export function PagamentosTable() {
   }
 
   // Corrigir a função handleDeletePagamento para permitir a eliminação de operações
+  // Substituir a função existente por esta versão simplificada:
+
   const handleDeletePagamento = (fornecedorId: string, pagamentoId: string) => {
     console.log("Tentando eliminar pagamento:", { fornecedorId, pagamentoId })
 
@@ -833,22 +835,7 @@ export function PagamentosTable() {
     }
 
     try {
-      // Remover quaisquer referências em outros sistemas
-      const pagamento = todosOsPagamentos.find((p) => p.id === pagamentoId)
-
-      if (pagamento) {
-        // Se for um pagamento com fundo de maneio, remover a referência
-        if (pagamento.metodo === "fundo de maneio" && pagamento.fundoManeioId) {
-          removerReferenciaFundoManeio(pagamento.fundoManeioId)
-        }
-
-        // Se for um pagamento com cheque, remover a referência
-        if (pagamento.metodo === "cheque") {
-          removerReferenciaChequePagamento(pagamentoId)
-        }
-      }
-
-      // Executar a eliminação do pagamento
+      // Executar a eliminação do pagamento diretamente, sem verificações adicionais
       deletePagamento(fornecedorId, pagamentoId)
 
       toast({
