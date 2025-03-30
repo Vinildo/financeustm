@@ -228,7 +228,7 @@ export class PagamentoService {
       const { data, error } = await supabase
         .from("pagamentos")
         .update(pagamentoData)
-        .eq("id", pagamento.id)
+        .match({ id: pagamento.id })
         .select()
         .single()
 

@@ -41,6 +41,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
 
 // Cores para os gráficos
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8", "#82ca9d", "#ffc658", "#8dd1e1"]
@@ -344,13 +345,24 @@ export function DemonstracaoResultados() {
       valor: formData.valor,
       dataRecebimento: formData.dataRecebimento ? new Date(formData.dataRecebimento) : null,
       dataPrevisao: new Date(formData.dataPrevisao),
-      estado: formData.estado,
-      metodo: formData.metodo,
+      estado: formData.estado as "prevista" | "recebida" | "atrasada" | "cancelada",
+      metodo: formData.metodo as "transferência" | "depósito" | "cheque" | "dinheiro" | "outro",
       categoria: formData.categoria,
       observacoes: formData.observacoes,
       documentoFiscal: formData.documentoFiscal,
       cliente: formData.cliente,
       reconciliado: formData.reconciliado,
+      historico: [],
+    }
+
+    // Verificar se todos os campos obrigatórios estão preenchidos
+    if (!novaReceita.descricao || !novaReceita.valor || !novaReceita.categoria || !novaReceita.cliente) {
+      toast({
+        title: "Erro ao adicionar receita",
+        description: "Por favor, preencha todos os campos obrigatórios.",
+        variant: "destructive",
+      })
+      return
     }
 
     addReceita(novaReceita)

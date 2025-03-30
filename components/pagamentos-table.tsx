@@ -818,8 +818,6 @@ export function PagamentosTable() {
   }
 
   // Corrigir a função handleDeletePagamento para permitir a eliminação de operações
-  // Substituir a função existente por esta versão simplificada:
-
   const handleDeletePagamento = (fornecedorId: string, pagamentoId: string) => {
     console.log("Tentando eliminar pagamento:", { fornecedorId, pagamentoId })
 
@@ -1110,95 +1108,95 @@ export function PagamentosTable() {
       // Criar um elemento temporário para renderizar o conteúdo do PDF
       const element = document.createElement("div")
       element.innerHTML = `
-        <div style="padding: 20px; font-family: Arial, sans-serif;">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <h1 style="color: #333;">Comprovativo de Pagamento</h1>
-          </div>
-          <div style="border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 10px;">
-            <h2 style="color: #555;">Detalhes do Pagamento</h2>
-          </div>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee; width: 40%;"><strong>Referência:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.referencia}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fornecedor:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.fornecedorNome}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Valor:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Data de Vencimento:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Estado:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.estado.charAt(0).toUpperCase() + pagamento.estado.slice(1)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método de Pagamento:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.metodo}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Departamento:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.departamento || "N/A"}</td>
-            </tr>
-            ${
-              pagamento.dataPagamento
-                ? `
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Data de Pagamento:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${format(new Date(pagamento.dataPagamento), "dd/MM/yyyy", { locale: pt })}</td>
-            </tr>
-            `
-                : ""
-            }
-            ${
-              pagamento.observacoes
-                ? `
-            <tr>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Observações:</strong></td>
-              <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.observacoes}</td>
-            </tr>
-            `
-                : ""
-            }
-          </table>
-          <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #777;">
-            <p>Este documento foi gerado automaticamente pelo sistema de Tesouraria.</p>
-            <p>Data de emissão: ${format(new Date(), "dd/MM/yyyy HH:mm", { locale: pt })}</p>
-          </div>
+      <div style="padding: 20px; font-family: Arial, sans-serif;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #333;">Comprovativo de Pagamento</h1>
         </div>
-      `
+        <div style="border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 10px;">
+          <h2 style="color: #555;">Detalhes do Pagamento</h2>
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee; width: 40%;"><strong>Referência:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.referencia}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fornecedor:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.fornecedorNome}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Valor:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Data de Vencimento:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Estado:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.estado.charAt(0).toUpperCase() + pagamento.estado.slice(1)}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método de Pagamento:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.metodo}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Departamento:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.departamento || "N/A"}</td>
+          </tr>
+          ${
+            pagamento.dataPagamento
+              ? `
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Data de Pagamento:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${format(new Date(pagamento.dataPagamento), "dd/MM/yyyy", { locale: pt })}</td>
+          </tr>
+          `
+              : ""
+          }
+          ${
+            pagamento.observacoes
+              ? `
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Observações:</strong></td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.observacoes}</td>
+          </tr>
+          `
+              : ""
+          }
+        </table>
+        <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #777;">
+          <p>Este documento foi gerado automaticamente pelo sistema de Tesouraria.</p>
+          <p>Data de emissão: ${format(new Date(), "dd/MM/yyyy HH:mm", { locale: pt })}</p>
+        </div>
+      </div>
+    `
 
       // Usar a função de impressão do navegador para gerar um PDF
       const printWindow = window.open("", "_blank")
       if (printWindow) {
         printWindow.document.write(`
-          <html>
-            <head>
-              <title>Comprovativo de Pagamento - ${pagamento.referencia}</title>
-              <style>
-                @media print {
-                  body { margin: 0; padding: 0; }
-                  @page { size: A4; margin: 1cm; }
-                }
-              </style>
-            </head>
-            <body>
-              ${element.innerHTML}
-              <script>
-                window.onload = function() {
-                  window.print();
-                  window.setTimeout(function() { window.close(); }, 500);
-                };
-              </script>
-            </body>
-          </html>
-        `)
+        <html>
+          <head>
+            <title>Comprovativo de Pagamento - ${pagamento.referencia}</title>
+            <style>
+              @media print {
+                body { margin: 0; padding: 0; }
+                @page { size: A4; margin: 1cm; }
+              }
+            </style>
+          </head>
+          <body>
+            ${element.innerHTML}
+            <script>
+              window.onload = function() {
+                window.print();
+                window.setTimeout(function() { window.close(); }, 500);
+              };
+            </script>
+          </body>
+        </html>
+      `)
         printWindow.document.close()
       } else {
         toast({
@@ -1812,7 +1810,9 @@ export function PagamentosTable() {
                   <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                     Cancelar
                   </Button>
-                  <Button onClick={handleAddPagamento}>Adicionar Pagamento</Button>
+                  <Button onClick={handleAddPagamento} className="bg-red-600 hover:bg-red-700">
+                    Adicionar Pagamento
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -2167,7 +2167,9 @@ export function PagamentosTable() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleEditPagamento}>Salvar Alterações</Button>
+              <Button onClick={handleEditPagamento} className="bg-red-600 hover:bg-red-700">
+                Salvar Alterações
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -2212,7 +2214,9 @@ export function PagamentosTable() {
               <Button variant="outline" onClick={() => setIsFundoManeioDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handlePagarComFundoManeio}>Confirmar Pagamento</Button>
+              <Button onClick={handlePagarComFundoManeio} className="bg-red-600 hover:bg-red-700">
+                Confirmar Pagamento
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -2286,7 +2290,9 @@ export function PagamentosTable() {
                 <Button variant="outline" onClick={() => setIsEmitirChequeDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button onClick={handleSalvarCheque}>Emitir Cheque</Button>
+                <Button onClick={handleSalvarCheque} className="bg-red-600 hover:bg-red-700">
+                  Emitir Cheque
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

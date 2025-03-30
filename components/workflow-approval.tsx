@@ -384,7 +384,7 @@ export function WorkflowApproval({ pagamento, isOpen, onClose }: WorkflowApprova
               >
                 Rejeitar
               </Button>
-              <Button onClick={handleApprove} disabled={isSubmitting}>
+              <Button onClick={handleApprove} disabled={isSubmitting} className="bg-red-600 hover:bg-red-700">
                 Aprovar
               </Button>
             </>

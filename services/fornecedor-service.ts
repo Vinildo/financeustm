@@ -82,10 +82,16 @@ export class FornecedorService {
       }
 
       // Preparar o fornecedor para inserção no Supabase
+      // Verificar se o ID é um UUID válido, caso contrário, gerar um novo
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fornecedor.id || "")
+
       const fornecedorData = {
-        id: fornecedor.id || uuidv4(),
+        id: isValidUUID ? fornecedor.id : uuidv4(),
         nome: fornecedor.nome || "Fornecedor Sem Nome",
       }
+
+      // Armazenar o ID original para uso no InMemoryStore caso o Supabase falhe
+      const originalId = fornecedor.id
 
       // Tentar adicionar ao Supabase primeiro
       const { data, error } = await supabase.from("fornecedores").insert(fornecedorData).select().single()
@@ -94,7 +100,11 @@ export class FornecedorService {
         console.error("[FornecedorService] Erro ao adicionar fornecedor ao Supabase:", error)
         console.log("[FornecedorService] Usando fallback para InMemoryStore...")
         // Fallback para o InMemoryStore
-        const newFornecedor = inMemoryStore.addFornecedor(fornecedor)
+        const fornecedorParaMemoria = {
+          ...fornecedor,
+          id: originalId || fornecedorData.id, // Usar o ID original se disponível, caso contrário usar o UUID gerado
+        }
+        const newFornecedor = inMemoryStore.addFornecedor(fornecedorParaMemoria)
         console.log("[FornecedorService] Fornecedor adicionado com sucesso ao InMemoryStore:", newFornecedor)
         return newFornecedor
       }
