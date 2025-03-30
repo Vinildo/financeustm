@@ -112,30 +112,41 @@ export function FundoManeio() {
       )
 
       if (fundoExistente) {
-        // Atualizar fundo existente
+        // Calcular o saldo atual corretamente
+        const totalEntradas = fundoExistente.movimentos
+          .filter((m) => m.tipo === "entrada")
+          .reduce((sum, m) => sum + m.valor, 0)
+
+        const totalSaidas = fundoExistente.movimentos
+          .filter((m) => m.tipo === "saida")
+          .reduce((sum, m) => sum + m.valor, 0)
+
+        const saldoAtual = fundoExistente.saldoInicial + totalEntradas - totalSaidas
+
+        // Calcular novo saldo final
+        const novoSaldoFinal =
+          novoMovimento.tipo === "entrada" ? saldoAtual + novoMovimento.valor : saldoAtual - novoMovimento.valor
+
         return fundosAnteriores.map((fundo) =>
           fundo.id === fundoExistente.id
             ? {
                 ...fundo,
                 movimentos: [...fundo.movimentos, novoMovimentoCompleto],
-                saldoFinal:
-                  fundo.saldoFinal +
-                  (novoMovimentoCompleto.tipo === "entrada"
-                    ? novoMovimentoCompleto.valor
-                    : -novoMovimentoCompleto.valor),
+                saldoFinal: novoSaldoFinal,
               }
             : fundo,
         )
       } else {
         // Criar novo fundo para o mês
+        const novoSaldoFinal =
+          novoMovimento.tipo === "entrada" ? saldoInicial + novoMovimento.valor : saldoInicial - novoMovimento.valor
+
         const novoFundo: FundoManeioMensal = {
           id: novoId,
           mes: startOfMonth(mesSelecionado),
           movimentos: [novoMovimentoCompleto],
           saldoInicial: saldoInicial,
-          saldoFinal:
-            saldoInicial +
-            (novoMovimentoCompleto.tipo === "entrada" ? novoMovimentoCompleto.valor : -novoMovimentoCompleto.valor),
+          saldoFinal: novoSaldoFinal,
         }
         return [...fundosAnteriores, novoFundo]
       }
@@ -182,8 +193,19 @@ export function FundoManeio() {
       )
 
       if (fundoExistente) {
+        // Calcular o saldo atual corretamente
+        const totalEntradas = fundoExistente.movimentos
+          .filter((m) => m.tipo === "entrada")
+          .reduce((sum, m) => sum + m.valor, 0)
+
+        const totalSaidas = fundoExistente.movimentos
+          .filter((m) => m.tipo === "saida")
+          .reduce((sum, m) => sum + m.valor, 0)
+
+        const saldoAtual = fundoExistente.saldoInicial + totalEntradas - totalSaidas
+
         // Verificar se há saldo suficiente para saídas
-        if (movimento.tipo === "saida" && fundoExistente.saldoFinal < movimento.valor) {
+        if (movimento.tipo === "saida" && saldoAtual < movimento.valor) {
           toast({
             title: "Erro",
             description: "Saldo insuficiente no fundo de maneio para realizar este pagamento.",
@@ -195,16 +217,17 @@ export function FundoManeio() {
 
         // Atualizar fundo existente
         fundoAtualizado = true
+
+        // Calcular novo saldo final
+        const novoSaldoFinal =
+          movimento.tipo === "entrada" ? saldoAtual + movimento.valor : saldoAtual - movimento.valor
+
         return fundosAnteriores.map((fundo) =>
           fundo.id === fundoExistente.id
             ? {
                 ...fundo,
                 movimentos: [...fundo.movimentos, novoMovimentoCompleto],
-                saldoFinal:
-                  fundo.saldoFinal +
-                  (novoMovimentoCompleto.tipo === "entrada"
-                    ? novoMovimentoCompleto.valor
-                    : -novoMovimentoCompleto.valor),
+                saldoFinal: novoSaldoFinal,
               }
             : fundo,
         )
@@ -222,14 +245,17 @@ export function FundoManeio() {
         }
 
         fundoAtualizado = true
+
+        // Calcular saldo final para novo fundo
+        const novoSaldoFinal =
+          movimento.tipo === "entrada" ? saldoInicial + movimento.valor : saldoInicial - movimento.valor
+
         const novoFundo: FundoManeioMensal = {
           id: novoId,
           mes: startOfMonth(movimento.data),
           movimentos: [novoMovimentoCompleto],
           saldoInicial: saldoInicial,
-          saldoFinal:
-            saldoInicial +
-            (novoMovimentoCompleto.tipo === "entrada" ? novoMovimentoCompleto.valor : -novoMovimentoCompleto.valor),
+          saldoFinal: novoSaldoFinal,
         }
         return [...fundosAnteriores, novoFundo]
       }
@@ -275,7 +301,17 @@ export function FundoManeio() {
 
   const calcularSaldo = () => {
     if (!fundoManeioAtual) return 0
-    return fundoManeioAtual.saldoFinal
+
+    // Calcular o saldo com base no saldo inicial e todos os movimentos
+    const totalEntradas = fundoManeioAtual.movimentos
+      .filter((m) => m.tipo === "entrada")
+      .reduce((sum, m) => sum + m.valor, 0)
+
+    const totalSaidas = fundoManeioAtual.movimentos
+      .filter((m) => m.tipo === "saida")
+      .reduce((sum, m) => sum + m.valor, 0)
+
+    return fundoManeioAtual.saldoInicial + totalEntradas - totalSaidas
   }
 
   const handlePrint = () => {
@@ -391,13 +427,87 @@ export function FundoManeio() {
 
   // Expor a função adicionarMovimentoFundoManeio para o componente pai
   useEffect(() => {
+    // Expor as funções para o objeto global window para permitir comunicação entre componentes
     // @ts-ignore
     window.fundoManeio = {
-      adicionarMovimentoFundoManeio,
-      setNovoMovimento,
-      setIsAddDialogOpen,
+      adicionarMovimentoFundoManeio: (movimento: any) => {
+        try {
+          // Carregar fundos de maneio existentes
+          const fundosManeio = JSON.parse(localStorage.getItem("fundosManeio") || "[]", (key, value) => {
+            if (key === "mes" || key === "data") {
+              return new Date(value)
+            }
+            return value
+          })
+
+          // Verificar se há pelo menos um fundo de maneio
+          if (fundosManeio.length === 0) {
+            toast({
+              title: "Erro",
+              description: "Não há fundos de maneio disponíveis.",
+              variant: "destructive",
+            })
+            return null
+          }
+
+          // Usar o primeiro fundo de maneio disponível
+          const fundo = fundosManeio[0]
+
+          // Verificar se há saldo suficiente
+          const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
+          if (movimento.tipo === "saida" && saldoAtual < movimento.valor) {
+            toast({
+              title: "Erro",
+              description: `Saldo insuficiente no fundo de maneio. Saldo atual: ${saldoAtual.toFixed(2)} MZN`,
+              variant: "destructive",
+            })
+            return null
+          }
+
+          // Criar ID para o novo movimento
+          const movimentoId = Date.now().toString()
+
+          // Adicionar o movimento ao fundo
+          const novoMovimento = {
+            ...movimento,
+            id: movimentoId,
+            data: movimento.data || new Date(),
+          }
+
+          if (!fundo.movimentos) {
+            fundo.movimentos = []
+          }
+
+          fundo.movimentos.push(novoMovimento)
+
+          // Atualizar o saldo final
+          fundo.saldoFinal = movimento.tipo === "entrada" ? saldoAtual + movimento.valor : saldoAtual - movimento.valor
+
+          // Salvar fundos atualizados
+          localStorage.setItem("fundosManeio", JSON.stringify(fundosManeio))
+
+          // Atualizar o estado local para refletir as mudanças
+          setFundosManeio(fundosManeio)
+
+          return movimentoId
+        } catch (error) {
+          console.error("Erro ao adicionar movimento ao fundo de maneio:", error)
+          toast({
+            title: "Erro",
+            description: "Ocorreu um erro ao adicionar o movimento ao fundo de maneio.",
+            variant: "destructive",
+          })
+          return null
+        }
+      },
+      getFundoManeioAtual: () => {
+        return fundoManeioAtual
+      },
+      getSaldoAtual: () => {
+        return calcularSaldo()
+      },
     }
-  }, [fundosManeio, saldoInicial])
+  }, [fundosManeio, fundoManeioAtual])
 
   return (
     <PrintLayout title="Fundo de Maneio">

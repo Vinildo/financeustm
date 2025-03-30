@@ -2,7 +2,7 @@
 
 import { DialogTrigger } from "@/components/ui/dialog"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   Check,
   CreditCard,
@@ -71,6 +71,7 @@ import { LembreteDocumentos } from "@/components/lembrete-documentos"
 import { WorkflowApproval } from "@/components/workflow-approval"
 import { v4 as uuidv4 } from "uuid"
 import { Textarea } from "@/components/ui/textarea"
+import type { Movimento } from "@/components/fundo-maneio"
 
 export function PagamentosTable() {
   const { user } = useAuth()
@@ -163,6 +164,20 @@ export function PagamentosTable() {
     referencia: string
     valor: number
   } | null>(null)
+
+  // Referência para a função adicionarMovimentoFundoManeio do componente FundoManeio
+  const fundoManeioRef = useRef<{
+    adicionarMovimentoFundoManeio: (movimento: Partial<Movimento>) => string | null
+  } | null>(null)
+
+  // Atualizar a referência quando o componente FundoManeio estiver disponível
+  useEffect(() => {
+    // @ts-ignore
+    if (window.fundoManeio) {
+      // @ts-ignore
+      fundoManeioRef.current = window.fundoManeio
+    }
+  }, [])
 
   // Process payments when fornecedores changes
   useEffect(() => {
@@ -964,9 +979,15 @@ export function PagamentosTable() {
     }
   }
 
+  // Vamos melhorar a função handlePagarComFundoManeio para garantir que funcione corretamente
+
+  // Substitua a função handlePagarComFundoManeio existente por esta versão melhorada:
   const handlePagarComFundoManeio = () => {
+    console.log("Iniciando pagamento com fundo de maneio...")
+
     // Check if context functions are available
     if (!updatePagamento) {
+      console.error("Função updatePagamento não disponível")
       toast({
         title: "Erro ao pagar com fundo de maneio",
         description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
@@ -976,6 +997,7 @@ export function PagamentosTable() {
     }
 
     if (!pagamentoParaFundoManeio) {
+      console.error("Pagamento para fundo de maneio não selecionado")
       toast({
         title: "Erro",
         description: "Pagamento não selecionado.",
@@ -984,51 +1006,109 @@ export function PagamentosTable() {
       return
     }
 
+    console.log("Pagamento selecionado:", pagamentoParaFundoManeio)
+
     // Usar uma descrição padrão se não for fornecida
     const descricaoEfetiva =
       descricaoFundoManeio ||
       `Pagamento a ${pagamentoParaFundoManeio.fornecedorNome} - Ref: ${pagamentoParaFundoManeio.referencia}`
 
-    // Criar um movimento de saída no fundo de maneio
-    const movimentoId = adicionarMovimentoFundoManeio({
-      data: new Date(),
-      tipo: "saida",
-      valor: pagamentoParaFundoManeio.valor,
-      descricao: descricaoEfetiva,
-      pagamentoId: pagamentoParaFundoManeio.id,
-      pagamentoReferencia: pagamentoParaFundoManeio.referencia,
-      fornecedorNome: pagamentoParaFundoManeio.fornecedorNome,
-    })
+    console.log("Descrição do movimento:", descricaoEfetiva)
 
-    if (!movimentoId) {
+    try {
+      // Carregar fundos de maneio existentes
+      const fundosManeioString = localStorage.getItem("fundosManeio")
+      const fundosManeio = fundosManeioString
+        ? JSON.parse(fundosManeioString, (key, value) => {
+            if (key === "mes" || key === "data") {
+              return new Date(value)
+            }
+            return value
+          })
+        : []
+
+      // Verificar se há pelo menos um fundo de maneio
+      if (fundosManeio.length === 0) {
+        console.error("Não há fundos de maneio disponíveis")
+        toast({
+          title: "Erro",
+          description: "Não há fundos de maneio disponíveis.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Usar o primeiro fundo de maneio disponível
+      const fundo = fundosManeio[0]
+
+      // Criar ID para o novo movimento
+      const movimentoId = Date.now().toString()
+
+      // Adicionar o movimento ao fundo
+      const novoMovimento = {
+        id: movimentoId,
+        data: new Date(),
+        tipo: "saida",
+        valor: pagamentoParaFundoManeio.valor,
+        descricao: descricaoEfetiva,
+        pagamentoId: pagamentoParaFundoManeio.id,
+        pagamentoReferencia: pagamentoParaFundoManeio.referencia,
+        fornecedorNome: pagamentoParaFundoManeio.fornecedorNome,
+      }
+
+      if (!fundo.movimentos) {
+        fundo.movimentos = []
+      }
+
+      // Verificar se há saldo suficiente
+      const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
+      if (saldoAtual < pagamentoParaFundoManeio.valor) {
+        console.error("Saldo insuficiente no fundo de maneio")
+        toast({
+          title: "Erro",
+          description: `Saldo insuficiente no fundo de maneio. Saldo atual: ${saldoAtual.toFixed(2)} MZN`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Adicionar o movimento e atualizar o saldo
+      fundo.movimentos.push(novoMovimento)
+      fundo.saldoFinal = saldoAtual - pagamentoParaFundoManeio.valor
+
+      // Salvar fundos atualizados
+      localStorage.setItem("fundosManeio", JSON.stringify(fundosManeio))
+      console.log("Movimento adicionado ao fundo de maneio:", novoMovimento)
+
+      // Atualizar o pagamento
+      const pagamentoAtualizado = {
+        ...pagamentoParaFundoManeio,
+        estado: "pago",
+        dataPagamento: new Date(),
+        metodo: "fundo de maneio",
+        fundoManeioId: movimentoId,
+        observacoes: `${pagamentoParaFundoManeio.observacoes ? pagamentoParaFundoManeio.observacoes + " | " : ""}Pago com Fundo de Maneio em ${format(new Date(), "dd/MM/yyyy", { locale: pt })}`,
+      }
+
+      console.log("Atualizando pagamento:", pagamentoAtualizado)
+      updatePagamento(pagamentoParaFundoManeio.fornecedorId, pagamentoAtualizado)
+
+      setIsFundoManeioDialogOpen(false)
+      setPagamentoParaFundoManeio(null)
+      setDescricaoFundoManeio("")
+
+      toast({
+        title: "Pagamento realizado",
+        description: "O pagamento foi realizado com sucesso utilizando o fundo de maneio.",
+      })
+    } catch (error) {
+      console.error("Erro ao processar pagamento com fundo de maneio:", error)
       toast({
         title: "Erro",
-        description: "Não foi possível adicionar o movimento ao fundo de maneio. Verifique se há saldo suficiente.",
+        description: "Ocorreu um erro ao processar o pagamento. Por favor, tente novamente.",
         variant: "destructive",
       })
-      return
     }
-
-    // Atualizar o pagamento
-    const pagamentoAtualizado = {
-      ...pagamentoParaFundoManeio,
-      estado: "pago",
-      dataPagamento: new Date(),
-      metodo: "fundo de maneio",
-      fundoManeioId: movimentoId,
-      observacoes: `${pagamentoParaFundoManeio.observacoes ? pagamentoParaFundoManeio.observacoes + " | " : ""}Pago com Fundo de Maneio em ${format(new Date(), "dd/MM/yyyy", { locale: pt })}`,
-    }
-
-    updatePagamento(pagamentoParaFundoManeio.fornecedorId, pagamentoAtualizado)
-
-    setIsFundoManeioDialogOpen(false)
-    setPagamentoParaFundoManeio(null)
-    setDescricaoFundoManeio("")
-
-    toast({
-      title: "Pagamento realizado",
-      description: "O pagamento foi realizado com sucesso utilizando o fundo de maneio.",
-    })
   }
 
   // Substitua a função handleExportPDF existente por esta implementação funcional:
