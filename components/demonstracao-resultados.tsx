@@ -12,7 +12,17 @@ import { PrintLayout } from "@/components/print-layout"
 import { useAppContext } from "@/contexts/AppContext"
 import { format, isWithinInterval, subMonths, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns"
 import { pt } from "date-fns/locale"
-import { Printer, Download, TrendingUp, TrendingDown, DollarSign, Plus } from "lucide-react"
+import {
+  Printer,
+  Download,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Plus,
+  Edit,
+  Trash,
+  MoreHorizontal,
+} from "lucide-react"
 import {
   BarChart,
   Bar,
@@ -42,12 +52,13 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 // Cores para os gráficos
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8", "#82ca9d", "#ffc658", "#8dd1e1"]
 
 export function DemonstracaoResultados() {
-  const { fornecedores, receitas, addReceita, clientes = [] } = useAppContext()
+  const { fornecedores, receitas, addReceita, updateReceita, deleteReceita, clientes = [] } = useAppContext()
   const hoje = new Date()
 
   // Estados para filtros
@@ -74,6 +85,10 @@ export function DemonstracaoResultados() {
     cliente: "",
     reconciliado: false,
   })
+
+  const [receitaSelecionada, setReceitaSelecionada] = useState<any>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
   // Calcular período com base na seleção
   const periodo = useMemo(() => {
@@ -403,6 +418,75 @@ export function DemonstracaoResultados() {
     }
   }
 
+  const handleEditReceita = () => {
+    if (!receitaSelecionada) return
+
+    try {
+      // Garantir que as datas estão no formato correto
+      const receitaAtualizada = {
+        ...receitaSelecionada,
+        dataRecebimento: receitaSelecionada.dataRecebimento ? new Date(receitaSelecionada.dataRecebimento) : null,
+        dataPrevisao: new Date(receitaSelecionada.dataPrevisao),
+      }
+
+      // Chamar a função do contexto para atualizar a receita
+      updateReceita(receitaAtualizada)
+        .then(() => {
+          toast({
+            title: "Receita atualizada",
+            description: "A receita foi atualizada com sucesso.",
+          })
+          setIsEditDialogOpen(false)
+        })
+        .catch((error) => {
+          console.error("Erro ao atualizar receita:", error)
+          toast({
+            title: "Erro ao atualizar receita",
+            description: "Ocorreu um erro ao atualizar a receita. Por favor, tente novamente.",
+            variant: "destructive",
+          })
+        })
+    } catch (error) {
+      console.error("Erro ao atualizar receita:", error)
+      toast({
+        title: "Erro ao atualizar receita",
+        description: "Ocorreu um erro ao atualizar a receita. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDeleteReceita = () => {
+    if (!receitaSelecionada) return
+
+    try {
+      // Chamar a função do contexto para eliminar a receita
+      deleteReceita(receitaSelecionada.id)
+        .then(() => {
+          toast({
+            title: "Receita eliminada",
+            description: "A receita foi eliminada com sucesso.",
+          })
+          setIsDeleteDialogOpen(false)
+        })
+        .catch((error) => {
+          console.error("Erro ao eliminar receita:", error)
+          toast({
+            title: "Erro ao eliminar receita",
+            description: "Ocorreu um erro ao eliminar a receita. Por favor, tente novamente.",
+            variant: "destructive",
+          })
+        })
+    } catch (error) {
+      console.error("Erro ao eliminar receita:", error)
+      toast({
+        title: "Erro ao eliminar receita",
+        description: "Ocorreu um erro ao eliminar a receita. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <PrintLayout title="Demonstração de Resultados">
       <Card className="w-full">
@@ -646,12 +730,13 @@ export function DemonstracaoResultados() {
                         <TableHead>Data</TableHead>
                         <TableHead>Estado</TableHead>
                         <TableHead className="text-right">Valor</TableHead>
+                        <TableHead className="text-center">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {receitasFiltradas.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+                          <TableCell colSpan={7} className="text-center py-4 text-gray-500">
                             Nenhuma receita encontrada para o período selecionado.
                           </TableCell>
                         </TableRow>
@@ -681,6 +766,37 @@ export function DemonstracaoResultados() {
                             </TableCell>
                             <TableCell className="text-right">
                               {receita.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                    <span className="sr-only">Abrir menu</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setReceitaSelecionada(receita)
+                                      setIsEditDialogOpen(true)
+                                    }}
+                                  >
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Editar
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-red-600"
+                                    onClick={() => {
+                                      setReceitaSelecionada(receita)
+                                      setIsDeleteDialogOpen(true)
+                                    }}
+                                  >
+                                    <Trash className="mr-2 h-4 w-4" />
+                                    Eliminar
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </TableCell>
                           </TableRow>
                         ))
@@ -1241,6 +1357,117 @@ export function DemonstracaoResultados() {
               <Button type="submit">Adicionar Receita</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo para editar receita */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Editar Receita</DialogTitle>
+            <DialogDescription>Atualize os detalhes da receita.</DialogDescription>
+          </DialogHeader>
+          {receitaSelecionada && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleEditReceita()
+              }}
+            >
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <Label htmlFor="edit-descricao">Descrição</Label>
+                    <Input
+                      id="edit-descricao"
+                      value={receitaSelecionada.descricao}
+                      onChange={(e) => setReceitaSelecionada({ ...receitaSelecionada, descricao: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-valor">Valor</Label>
+                    <Input
+                      id="edit-valor"
+                      type="number"
+                      step="0.01"
+                      value={receitaSelecionada.valor}
+                      onChange={(e) =>
+                        setReceitaSelecionada({
+                          ...receitaSelecionada,
+                          valor: Number.parseFloat(e.target.value) || 0,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-cliente">Cliente</Label>
+                    <Input
+                      id="edit-cliente"
+                      value={receitaSelecionada.cliente}
+                      onChange={(e) => setReceitaSelecionada({ ...receitaSelecionada, cliente: e.target.value })}
+                      required
+                      list="clientes-list"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-categoria">Categoria</Label>
+                    <Input
+                      id="edit-categoria"
+                      value={receitaSelecionada.categoria}
+                      onChange={(e) => setReceitaSelecionada({ ...receitaSelecionada, categoria: e.target.value })}
+                      required
+                      list="categorias-list"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-estado">Estado</Label>
+                    <Select
+                      value={receitaSelecionada.estado}
+                      onValueChange={(value) => setReceitaSelecionada({ ...receitaSelecionada, estado: value })}
+                    >
+                      <SelectTrigger id="edit-estado">
+                        <SelectValue placeholder="Selecionar estado" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="prevista">Prevista</SelectItem>
+                        <SelectItem value="recebida">Recebida</SelectItem>
+                        <SelectItem value="atrasada">Atrasada</SelectItem>
+                        <SelectItem value="cancelada">Cancelada</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit">Salvar Alterações</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo para confirmar exclusão */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir esta receita? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleDeleteReceita}>
+              Eliminar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PrintLayout>
