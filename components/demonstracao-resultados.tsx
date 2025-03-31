@@ -178,13 +178,17 @@ export function DemonstracaoResultados() {
     // Somar receitas por mês
     receitasFiltradas.forEach((receita) => {
       const dataParaFiltro = receita.dataRecebimento || receita.dataPrevisao
-      const mes = dataParaFiltro.getMonth()
+      // Garantir que dataParaFiltro é um objeto Date válido
+      const dataComoDate = dataParaFiltro instanceof Date ? dataParaFiltro : new Date(dataParaFiltro)
+      const mes = dataComoDate.getMonth()
       meses[mes].receitas += receita.valor
     })
 
     // Somar despesas por mês
     despesasFiltradas.forEach((despesa) => {
-      const mes = new Date(despesa.dataVencimento).getMonth()
+      // Garantir que a data é um objeto Date válido
+      const dataComoDate = new Date(despesa.dataVencimento)
+      const mes = dataComoDate.getMonth()
       meses[mes].despesas += despesa.valor
     })
 
