@@ -369,39 +369,79 @@ class InMemoryStore {
 
   // Receita methods
   getReceitas(): Receita[] {
-    return [...this.receitas]
+    try {
+      const storedReceitas = localStorage.getItem("receitas")
+      return storedReceitas ? JSON.parse(storedReceitas) : []
+    } catch (error) {
+      console.error("Erro ao carregar receitas do localStorage:", error)
+      return []
+    }
   }
 
   getReceitaById(id: string): Receita | undefined {
-    return this.receitas.find((r) => r.id === id)
+    try {
+      const receitas = this.getReceitas()
+      const receita = (receitas as Receita[]).find((r: Receita) => r.id === id)
+      return receita || undefined
+    } catch (error) {
+      console.error(`Erro ao buscar receita com ID ${id}:`, error)
+      return undefined
+    }
   }
 
   addReceita(receita: Omit<Receita, "id" | "created_at">): Receita {
-    const newReceita: Receita = {
-      ...receita,
-      id: uuidv4(),
-      created_at: new Date().toISOString(),
+    try {
+      const receitas = this.getReceitas()
+      const newReceita = { ...receita, id: uuidv4(), created_at: new Date().toISOString() }
+
+      // Add to the list
+      const updatedReceitas = [...(receitas as Receita[]), newReceita]
+
+      // Save to localStorage
+      localStorage.setItem("receitas", JSON.stringify(updatedReceitas))
+
+      return newReceita
+    } catch (error) {
+      console.error("Erro ao adicionar receita ao localStorage:", error)
+      throw error
     }
-    this.receitas.push(newReceita)
-    return newReceita
   }
 
   updateReceita(id: string, receita: Partial<Receita>): Receita | null {
-    const index = this.receitas.findIndex((r) => r.id === id)
-    if (index === -1) return null
+    try {
+      const receitas = this.getReceitas()
+      const index = (receitas as Receita[]).findIndex((r: Receita) => r.id === id)
 
-    this.receitas[index] = {
-      ...this.receitas[index],
-      ...receita,
+      if (index === -1) return null
+
+      const updatedReceita = ({ ...(receitas as Receita[])[index], ...receita }(receitas as Receita[])[index] =
+        updatedReceita)
+
+      localStorage.setItem("receitas", JSON.stringify(receitas))
+
+      return updatedReceita
+    } catch (error) {
+      console.error(`Erro ao atualizar receita com ID ${id}:`, error)
+      throw error
     }
-
-    return this.receitas[index]
   }
 
   deleteReceita(id: string): boolean {
-    const initialLength = this.receitas.length
-    this.receitas = this.receitas.filter((r) => r.id !== id)
-    return this.receitas.length < initialLength
+    try {
+      const receitas = this.getReceitas()
+      const updatedReceitas = (receitas as Receita[]).filter((r: Receita) => r.id !== id)
+
+      if (updatedReceitas.length === (receitas as Receita[]).length) {
+        return false // Nothing was deleted
+      }
+
+      localStorage.setItem("receitas", JSON.stringify(updatedReceitas))
+
+      return true
+    } catch (error) {
+      console.error(`Erro ao excluir receita com ID ${id}:`, error)
+      throw error
+    }
   }
 
   // User methods

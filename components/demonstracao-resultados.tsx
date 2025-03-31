@@ -339,34 +339,64 @@ export function DemonstracaoResultados() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    const novaReceita = {
-      id: Date.now().toString(),
-      descricao: formData.descricao,
-      valor: formData.valor,
-      dataRecebimento: formData.dataRecebimento ? new Date(formData.dataRecebimento) : null,
-      dataPrevisao: new Date(formData.dataPrevisao),
-      estado: formData.estado as "prevista" | "recebida" | "atrasada" | "cancelada",
-      metodo: formData.metodo as "transferência" | "depósito" | "cheque" | "dinheiro" | "outro",
-      categoria: formData.categoria,
-      observacoes: formData.observacoes,
-      documentoFiscal: formData.documentoFiscal,
-      cliente: formData.cliente,
-      reconciliado: formData.reconciliado,
-      historico: [],
-    }
+    try {
+      // Create a unique ID for the new receipt
+      const newId = `receita-${Date.now()}-${Math.floor(Math.random() * 1000)}`
 
-    // Verificar se todos os campos obrigatórios estão preenchidos
-    if (!novaReceita.descricao || !novaReceita.valor || !novaReceita.categoria || !novaReceita.cliente) {
+      const novaReceita = {
+        id: newId,
+        descricao: formData.descricao,
+        valor: formData.valor,
+        dataRecebimento: formData.dataRecebimento ? new Date(formData.dataRecebimento) : null,
+        dataPrevisao: new Date(formData.dataPrevisao),
+        estado: formData.estado as "prevista" | "recebida" | "atrasada" | "cancelada",
+        metodo: formData.metodo as "transferência" | "depósito" | "cheque" | "dinheiro" | "outro",
+        categoria: formData.categoria,
+        observacoes: formData.observacoes,
+        documentoFiscal: formData.documentoFiscal,
+        cliente: formData.cliente,
+        reconciliado: formData.reconciliado,
+        historico: [],
+      }
+
+      // Verificar se todos os campos obrigatórios estão preenchidos
+      if (!novaReceita.descricao || !novaReceita.valor || !novaReceita.categoria || !novaReceita.cliente) {
+        toast({
+          title: "Erro ao adicionar receita",
+          description: "Por favor, preencha todos os campos obrigatórios.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      console.log("Adicionando nova receita:", novaReceita)
+
+      // Adicionar a receita e mostrar feedback ao usuário
+      addReceita(novaReceita)
+        .then(() => {
+          toast({
+            title: "Receita adicionada",
+            description: "A receita foi adicionada com sucesso.",
+            variant: "default",
+          })
+          handleCloseDialog()
+        })
+        .catch((error) => {
+          console.error("Erro ao adicionar receita:", error)
+          toast({
+            title: "Erro ao adicionar receita",
+            description: "Ocorreu um erro ao adicionar a receita. Por favor, tente novamente.",
+            variant: "destructive",
+          })
+        })
+    } catch (error) {
+      console.error("Erro ao adicionar receita:", error)
       toast({
         title: "Erro ao adicionar receita",
-        description: "Por favor, preencha todos os campos obrigatórios.",
+        description: "Ocorreu um erro ao adicionar a receita. Por favor, tente novamente.",
         variant: "destructive",
       })
-      return
     }
-
-    addReceita(novaReceita)
-    handleCloseDialog()
   }
 
   return (

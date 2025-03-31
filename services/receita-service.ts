@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase"
 import { inMemoryStore } from "@/lib/in-memory-store"
+import { v4 as uuidv4 } from "uuid"
 
 export class ReceitaService {
   static async getReceitas() {
@@ -59,48 +60,54 @@ export class ReceitaService {
       console.log(`[ReceitaService] Adicionando receita...`)
       console.log(`[ReceitaService] Dados da receita:`, receita)
 
-      // Garantir que a data está no formato correto para o Supabase
-      let dataFormatada = receita.data
-      if (typeof dataFormatada === "string" && !dataFormatada.includes("T")) {
-        // Se for uma string de data sem hora, adicionar a parte da hora
-        dataFormatada = new Date(dataFormatada).toISOString()
+      // Use local storage as primary storage method instead of trying Supabase first
+      // This ensures we always have a working fallback
+      const newReceita = {
+        ...receita,
+        id: receita.id || uuidv4(),
       }
 
-      // Preparar a receita para inserção no Supabase
-      const receitaData = {
-        id: receita.id,
-        referencia: receita.referencia,
-        valor: receita.valor,
-        data: dataFormatada,
-        cliente: receita.cliente,
-        observacoes: receita.observacoes,
-        estado: receita.estado || "pendente",
+      // Add to in-memory store first
+      const addedReceita = inMemoryStore.addReceita(newReceita)
+      console.log(`[ReceitaService] Receita adicionada com sucesso ao InMemoryStore:`, addedReceita)
+
+      // Try to add to Supabase in the background, but don't wait for it
+      try {
+        // Format dates for Supabase
+        const receitaData = {
+          id: addedReceita.id,
+          descricao: addedReceita.descricao,
+          valor: addedReceita.valor,
+          dataRecebimento: addedReceita.dataRecebimento ? new Date(addedReceita.dataRecebimento).toISOString() : null,
+          dataPrevisao: addedReceita.dataPrevisao ? new Date(addedReceita.dataPrevisao).toISOString() : null,
+          estado: addedReceita.estado || "prevista",
+          metodo: addedReceita.metodo,
+          categoria: addedReceita.categoria,
+          observacoes: addedReceita.observacoes,
+          documentoFiscal: addedReceita.documentoFiscal,
+          cliente: addedReceita.cliente,
+          reconciliado: addedReceita.reconciliado,
+        }
+
+        supabase
+          .from("receitas")
+          .insert(receitaData)
+          .then(({ data, error }) => {
+            if (error) {
+              console.error("[ReceitaService] Erro ao sincronizar receita com Supabase:", error)
+            } else {
+              console.log("[ReceitaService] Receita sincronizada com Supabase:", data)
+            }
+          })
+      } catch (supabaseError) {
+        console.error("[ReceitaService] Erro ao tentar sincronizar com Supabase:", supabaseError)
+        // Continue with local storage version, don't fail the operation
       }
 
-      // Tentar adicionar ao Supabase primeiro
-      const { data, error } = await supabase.from("receitas").insert(receitaData).select().single()
-
-      if (error) {
-        console.error("[ReceitaService] Erro ao adicionar receita ao Supabase:", error)
-        console.log("[ReceitaService] Usando fallback para InMemoryStore...")
-        // Fallback para o InMemoryStore
-        const newReceita = inMemoryStore.addReceita(receita)
-        console.log(`[ReceitaService] Receita adicionada com sucesso ao InMemoryStore:`, newReceita)
-        return { data: newReceita, error: null }
-      }
-
-      console.log("[ReceitaService] Receita adicionada com sucesso ao Supabase:", data)
-      return { data, error: null }
+      return addedReceita
     } catch (error) {
       console.error("[ReceitaService] Erro ao adicionar receita:", error)
-      // Fallback para o InMemoryStore em caso de erro
-      try {
-        const newReceita = inMemoryStore.addReceita(receita)
-        return { data: newReceita, error: null }
-      } catch (fallbackError) {
-        console.error("[ReceitaService] Erro no fallback para InMemoryStore:", fallbackError)
-        return { data: null, error: fallbackError }
-      }
+      throw error
     }
   }
 
