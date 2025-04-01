@@ -88,35 +88,40 @@ export function UserManagement() {
       return
     }
 
-    // Verificar se o nome de usuário já existe
-    if (users.some((user) => user.username.toLowerCase() === newUser.username.toLowerCase())) {
-      toast({
-        title: "Nome de usuário já existe",
-        description: "Por favor, escolha outro nome de usuário.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Verificar se o email já existe (se fornecido)
-    if (newUser.email && users.some((user) => user.email && user.email.toLowerCase() === newUser.email.toLowerCase())) {
-      toast({
-        title: "Email já existe",
-        description: "Este email já está associado a outro usuário.",
-        variant: "destructive",
-      })
-      return
-    }
-
     try {
-      // Adicionar o novo usuário
-      addUser({
+      // Criar o novo usuário
+      const userToAdd = {
+        id: Date.now().toString(),
         username: newUser.username,
         fullName: newUser.fullName,
         email: newUser.email || "",
         password: newUser.password,
         role: newUser.role,
-      })
+        isActive: true,
+        forcePasswordChange: false,
+      }
+
+      // Obter usuários existentes do localStorage
+      const existingUsers = JSON.parse(localStorage.getItem("users") || "[]")
+
+      // Verificar se o nome de usuário já existe
+      if (existingUsers.some((user) => user.username.toLowerCase() === newUser.username.toLowerCase())) {
+        toast({
+          title: "Nome de usuário já existe",
+          description: "Por favor, escolha outro nome de usuário.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Adicionar o novo usuário
+      const updatedUsers = [...existingUsers, userToAdd]
+
+      // Salvar no localStorage
+      localStorage.setItem("users", JSON.stringify(updatedUsers))
+
+      // Atualizar o estado local
+      addUser(userToAdd)
 
       // Fechar o diálogo
       setIsAddDialogOpen(false)

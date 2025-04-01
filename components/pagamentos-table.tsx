@@ -72,8 +72,16 @@ import { WorkflowApproval } from "@/components/workflow-approval"
 import { v4 as uuidv4 } from "uuid"
 import { Textarea } from "@/components/ui/textarea"
 import type { Movimento } from "@/components/fundo-maneio"
+// Adicione esta importação no início do arquivo
+import { inicializarFundoManeioGlobal } from "@/lib/fundo-maneio-utils"
 
+// Adicione este código no início do componente PagamentosTable
 export function PagamentosTable() {
+  // Inicializar o fundo de maneio global
+  useEffect(() => {
+    inicializarFundoManeioGlobal()
+  }, [])
+
   const { user } = useAuth()
   const {
     fornecedores = [],
@@ -500,9 +508,14 @@ export function PagamentosTable() {
 
         // Verificar o método de pagamento e configurar o redirecionamento
         if (novoPagamento.metodo === "cheque") {
+          // Redirecionar para emissão de cheque
           setRedirectToChecks(true)
         } else if (novoPagamento.metodo === "fundo de maneio") {
+          // Redirecionar para fundo de maneio
           setRedirectToFundoManeio(true)
+        } else if (novoPagamento.metodo === "transferência") {
+          // Adicionar à reconciliação bancária como transação pendente
+          adicionarTransacaoBancariaParaPagamento(pagamentoId, fornecedorId, fornecedorNome, novoPagamento)
         }
       } catch (pagamentoError) {
         console.error("Erro ao adicionar pagamento:", pagamentoError)
@@ -536,6 +549,53 @@ export function PagamentosTable() {
         variant: "destructive",
       })
     }
+  }
+
+  // Adicionar esta nova função para criar uma transação bancária pendente para um pagamento por transferência
+  const adicionarTransacaoBancariaParaPagamento = (
+    pagamentoId: string,
+    fornecedorId: string,
+    fornecedorNome: string,
+    pagamento: any,
+  ) => {
+    // Criar uma transação bancária pendente para este pagamento
+    const transacao = {
+      id: `trans-${Date.now()}`,
+      data: new Date(),
+      descricao: `Transferência pendente - ${fornecedorNome} - ${pagamento.referencia}`,
+      valor: pagamento.valor,
+      tipo: "debito",
+      reconciliado: false,
+      pagamentoId: pagamentoId,
+      metodo: "transferencia",
+      origem: "manual",
+      observacoes: "Transferência bancária pendente de reconciliação",
+      referencia: pagamento.referencia,
+    }
+
+    // Carregar transações existentes
+    const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
+    let transacoes = []
+
+    if (transacoesArmazenadas) {
+      try {
+        transacoes = JSON.parse(transacoesArmazenadas)
+      } catch (error) {
+        console.error("Erro ao carregar transações bancárias:", error)
+        transacoes = []
+      }
+    }
+
+    // Adicionar a nova transação
+    transacoes.push(transacao)
+
+    // Salvar no localStorage
+    localStorage.setItem("transacoesBancarias", JSON.stringify(transacoes))
+
+    toast({
+      title: "Transação bancária criada",
+      description: "Uma transação bancária pendente foi criada para este pagamento.",
+    })
   }
 
   // Modificar a função handleEditPagamento para sincronizar com fundo de maneio e outros métodos de pagamento

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { format, startOfMonth, addMonths, subMonths } from "date-fns"
+import { format, startOfMonth, addMonths, subMonths, isValid } from "date-fns"
 import { pt } from "date-fns/locale"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -22,12 +22,13 @@ import { Calendar } from "@/components/ui/calendar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { PrintLayout } from "@/components/print-layout"
-import { Trash2, Printer, FileDown, ChevronLeft, ChevronRight, FileText } from "lucide-react"
+import { Trash2, Printer, FileDown, ChevronLeft, ChevronRight, FileText, Plus, RefreshCw } from "lucide-react"
 import jsPDF from "jspdf"
 import "jspdf-autotable"
 import * as XLSX from "xlsx"
 import { useAuth } from "@/hooks/use-auth"
 import { Badge } from "@/components/ui/badge"
+import { v4 as uuidv4 } from "uuid"
 
 export type Movimento = {
   id: string
@@ -38,6 +39,7 @@ export type Movimento = {
   pagamentoId?: string // Referência ao pagamento, se aplicável
   pagamentoReferencia?: string // Referência do pagamento, se aplicável
   fornecedorNome?: string // Nome do fornecedor, se aplicável
+  reposicaoId?: string // ID da reposição, se for uma entrada de reposição
 }
 
 type FundoManeioMensal = {
@@ -54,30 +56,114 @@ export function FundoManeio() {
   const [mesSelecionado, setMesSelecionado] = useState<Date>(startOfMonth(new Date()))
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isDetalhesDialogOpen, setIsDetalhesDialogOpen] = useState(false)
+  const [isReposicaoDialogOpen, setIsReposicaoDialogOpen] = useState(false)
   const [movimentoSelecionado, setMovimentoSelecionado] = useState<Movimento | null>(null)
   const [novoMovimento, setNovoMovimento] = useState<Partial<Movimento>>({
     tipo: "entrada",
   })
+  const [reposicao, setReposicao] = useState({
+    valor: 0,
+    descricao: "Reposição de Fundo de Maneio",
+    data: new Date(),
+  })
   const [saldoInicial, setSaldoInicial] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    // Carregar dados do localStorage ao iniciar
-    const dadosSalvos = localStorage.getItem("fundosManeio")
-    if (dadosSalvos) {
-      const dados = JSON.parse(dadosSalvos, (key, value) => {
-        if (key === "mes" || key === "data") {
-          return new Date(value)
-        }
-        return value
-      })
-      setFundosManeio(dados)
+  // Função para validar e corrigir datas
+  const validarData = (data: any): Date => {
+    if (!data) return new Date()
+
+    try {
+      const dataObj = data instanceof Date ? data : new Date(data)
+      return isValid(dataObj) ? dataObj : new Date()
+    } catch (error) {
+      console.error("Erro ao validar data:", error)
+      return new Date()
     }
+  }
+
+  // Função para carregar dados do localStorage com tratamento de erros
+  const carregarDadosLocalStorage = () => {
+    setIsLoading(true)
+    try {
+      const dadosSalvos = localStorage.getItem("fundosManeio")
+      if (dadosSalvos) {
+        try {
+          const dados = JSON.parse(dadosSalvos, (key, value) => {
+            if (key === "mes" || key === "data") {
+              return validarData(value)
+            }
+            return value
+          })
+
+          // Validar estrutura dos dados
+          const dadosValidados = Array.isArray(dados)
+            ? dados.map((fundo) => ({
+                id: fundo.id || uuidv4(),
+                mes: validarData(fundo.mes),
+                movimentos: Array.isArray(fundo.movimentos)
+                  ? fundo.movimentos.map((m: any) => ({
+                      id: m.id || uuidv4(),
+                      data: validarData(m.data),
+                      tipo: m.tipo === "entrada" || m.tipo === "saida" ? m.tipo : "entrada",
+                      valor: typeof m.valor === "number" ? m.valor : Number.parseFloat(m.valor) || 0,
+                      descricao: m.descricao || "Movimento sem descrição",
+                      pagamentoId: m.pagamentoId,
+                      pagamentoReferencia: m.pagamentoReferencia,
+                      fornecedorNome: m.fornecedorNome,
+                      reposicaoId: m.reposicaoId,
+                    }))
+                  : [],
+                saldoInicial:
+                  typeof fundo.saldoInicial === "number"
+                    ? fundo.saldoInicial
+                    : Number.parseFloat(fundo.saldoInicial) || 0,
+                saldoFinal:
+                  typeof fundo.saldoFinal === "number" ? fundo.saldoFinal : Number.parseFloat(fundo.saldoFinal) || 0,
+              }))
+            : []
+
+          setFundosManeio(dadosValidados)
+        } catch (error) {
+          console.error("Erro ao processar dados do fundo de maneio:", error)
+          setFundosManeio([])
+          // Fazer backup dos dados corrompidos
+          localStorage.setItem("fundosManeio_backup", dadosSalvos)
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar dados do fundo de maneio:", error)
+      setFundosManeio([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Função para salvar dados no localStorage com tratamento de erros
+  const salvarDadosLocalStorage = (dados: FundoManeioMensal[]) => {
+    try {
+      localStorage.setItem("fundosManeio", JSON.stringify(dados))
+    } catch (error) {
+      console.error("Erro ao salvar dados do fundo de maneio:", error)
+      toast({
+        title: "Erro",
+        description: "Não foi possível salvar os dados. Verifique o espaço disponível no navegador.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Carregar dados ao iniciar
+  useEffect(() => {
+    carregarDadosLocalStorage()
   }, [])
 
+  // Salvar dados quando fundosManeio for atualizado
   useEffect(() => {
-    // Salvar dados no localStorage sempre que fundosManeio for atualizado
-    localStorage.setItem("fundosManeio", JSON.stringify(fundosManeio))
-  }, [fundosManeio])
+    if (!isLoading) {
+      salvarDadosLocalStorage(fundosManeio)
+    }
+  }, [fundosManeio, isLoading])
 
   const fundoManeioAtual = fundosManeio.find(
     (fundo) => format(fundo.mes, "yyyy-MM") === format(mesSelecionado, "yyyy-MM"),
@@ -97,7 +183,7 @@ export function FundoManeio() {
     const data = novoMovimento.data || new Date()
     const descricao = novoMovimento.descricao || "Movimento manual"
 
-    const novoId = Date.now().toString()
+    const novoId = uuidv4()
     const novoMovimentoCompleto: Movimento = {
       id: novoId,
       data: data,
@@ -142,7 +228,7 @@ export function FundoManeio() {
           novoMovimento.tipo === "entrada" ? saldoInicial + novoMovimento.valor : saldoInicial - novoMovimento.valor
 
         const novoFundo: FundoManeioMensal = {
-          id: novoId,
+          id: uuidv4(),
           mes: startOfMonth(mesSelecionado),
           movimentos: [novoMovimentoCompleto],
           saldoInicial: saldoInicial,
@@ -163,6 +249,236 @@ export function FundoManeio() {
     return novoId
   }
 
+  // Função para criar uma reposição de fundo de maneio
+  const handleReposicaoFundoManeio = () => {
+    if (!reposicao.valor || reposicao.valor <= 0) {
+      toast({
+        title: "Erro",
+        description: "Por favor, informe um valor válido para a reposição.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      // Criar um ID para a reposição
+      const reposicaoId = `reposicao-${Date.now()}`
+
+      // Criar um pagamento para a reposição
+      const pagamento = {
+        id: `pagamento-${Date.now()}`,
+        referencia: `REP-${format(reposicao.data, "yyyyMMdd")}`,
+        valor: reposicao.valor,
+        dataVencimento: reposicao.data,
+        dataPagamento: reposicao.data,
+        estado: "pago",
+        metodo: "transferência",
+        departamento: "Tesouraria",
+        descricao: reposicao.descricao,
+        observacoes: "Reposição de Fundo de Maneio",
+        tipo: "fatura",
+        fornecedorNome: "Fundo de Maneio",
+        reposicaoId: reposicaoId,
+      }
+
+      // Adicionar o pagamento ao sistema
+      const pagamentoAdicionado = adicionarPagamentoReposicao(pagamento)
+
+      if (!pagamentoAdicionado) {
+        throw new Error("Falha ao adicionar pagamento de reposição")
+      }
+
+      // Adicionar o movimento de entrada no fundo de maneio
+      const novoMovimento: Movimento = {
+        id: uuidv4(),
+        data: reposicao.data,
+        tipo: "entrada",
+        valor: reposicao.valor,
+        descricao: reposicao.descricao,
+        pagamentoId: pagamento.id,
+        pagamentoReferencia: pagamento.referencia,
+        reposicaoId: reposicaoId,
+      }
+
+      setFundosManeio((fundosAnteriores) => {
+        const fundoExistente = fundosAnteriores.find(
+          (fundo) => format(fundo.mes, "yyyy-MM") === format(reposicao.data, "yyyy-MM"),
+        )
+
+        if (fundoExistente) {
+          // Calcular o saldo atual
+          const totalEntradas = fundoExistente.movimentos
+            .filter((m) => m.tipo === "entrada")
+            .reduce((sum, m) => sum + m.valor, 0)
+
+          const totalSaidas = fundoExistente.movimentos
+            .filter((m) => m.tipo === "saida")
+            .reduce((sum, m) => sum + m.valor, 0)
+
+          const saldoAtual = fundoExistente.saldoInicial + totalEntradas - totalSaidas
+
+          // Calcular novo saldo final
+          const novoSaldoFinal = saldoAtual + reposicao.valor
+
+          return fundosAnteriores.map((fundo) =>
+            fundo.id === fundoExistente.id
+              ? {
+                  ...fundo,
+                  movimentos: [...fundo.movimentos, novoMovimento],
+                  saldoFinal: novoSaldoFinal,
+                }
+              : fundo,
+          )
+        } else {
+          // Criar novo fundo para o mês
+          const novoFundo: FundoManeioMensal = {
+            id: uuidv4(),
+            mes: startOfMonth(reposicao.data),
+            movimentos: [novoMovimento],
+            saldoInicial: 0,
+            saldoFinal: reposicao.valor,
+          }
+          return [...fundosAnteriores, novoFundo]
+        }
+      })
+
+      // Adicionar transação bancária para a reposição
+      adicionarTransacaoBancariaReposicao(pagamento)
+
+      setIsReposicaoDialogOpen(false)
+      setReposicao({
+        valor: 0,
+        descricao: "Reposição de Fundo de Maneio",
+        data: new Date(),
+      })
+
+      toast({
+        title: "Reposição realizada",
+        description: "A reposição do fundo de maneio foi registrada com sucesso.",
+      })
+    } catch (error) {
+      console.error("Erro ao processar reposição:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao processar a reposição. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Função para adicionar um pagamento de reposição
+  const adicionarPagamentoReposicao = (pagamento: any) => {
+    try {
+      // Carregar fornecedores existentes
+      const fornecedoresString = localStorage.getItem("fornecedores")
+      let fornecedores = []
+
+      if (fornecedoresString) {
+        try {
+          fornecedores = JSON.parse(fornecedoresString)
+        } catch (error) {
+          console.error("Erro ao processar fornecedores:", error)
+          fornecedores = []
+          // Fazer backup dos dados corrompidos
+          localStorage.setItem("fornecedores_backup", fornecedoresString)
+        }
+      }
+
+      // Verificar se já existe um fornecedor para o fundo de maneio
+      let fundoManeioFornecedor = fornecedores.find((f: any) => f.nome === "Fundo de Maneio")
+
+      if (!fundoManeioFornecedor) {
+        // Criar um fornecedor para o fundo de maneio
+        fundoManeioFornecedor = {
+          id: `fornecedor-fundoManeio-${Date.now()}`,
+          nome: "Fundo de Maneio",
+          pagamentos: [],
+        }
+        fornecedores.push(fundoManeioFornecedor)
+      }
+
+      // Garantir que o fornecedor tenha um array de pagamentos
+      if (!fundoManeioFornecedor.pagamentos) {
+        fundoManeioFornecedor.pagamentos = []
+      }
+
+      // Adicionar o pagamento ao fornecedor
+      fundoManeioFornecedor.pagamentos.push({
+        ...pagamento,
+        fornecedorId: fundoManeioFornecedor.id,
+        historico: [
+          {
+            id: uuidv4(),
+            timestamp: new Date(),
+            username: user?.username || "sistema",
+            action: "create",
+            details: "Reposição de Fundo de Maneio criada",
+          },
+        ],
+      })
+
+      // Salvar fornecedores atualizados
+      localStorage.setItem("fornecedores", JSON.stringify(fornecedores))
+
+      return pagamento.id
+    } catch (error) {
+      console.error("Erro ao adicionar pagamento de reposição:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao registrar o pagamento de reposição.",
+        variant: "destructive",
+      })
+      return null
+    }
+  }
+
+  // Função para adicionar transação bancária para a reposição
+  const adicionarTransacaoBancariaReposicao = (pagamento: any) => {
+    try {
+      // Criar uma transação bancária para a reposição
+      const transacao = {
+        id: `trans-${Date.now()}`,
+        data: pagamento.dataPagamento,
+        descricao: `Reposição de Fundo de Maneio - ${pagamento.referencia}`,
+        valor: pagamento.valor,
+        tipo: "debito",
+        reconciliado: false,
+        pagamentoId: pagamento.id,
+        metodo: "transferencia",
+        origem: "reposicao",
+        observacoes: "Reposição de Fundo de Maneio",
+        referencia: pagamento.referencia,
+        reposicaoId: pagamento.reposicaoId,
+      }
+
+      // Carregar transações existentes
+      const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
+      let transacoes = []
+
+      if (transacoesArmazenadas) {
+        try {
+          transacoes = JSON.parse(transacoesArmazenadas)
+        } catch (error) {
+          console.error("Erro ao carregar transações bancárias:", error)
+          transacoes = []
+          // Fazer backup dos dados corrompidos
+          localStorage.setItem("transacoesBancarias_backup", transacoesArmazenadas)
+        }
+      }
+
+      // Adicionar a nova transação
+      transacoes.push(transacao)
+
+      // Salvar no localStorage
+      localStorage.setItem("transacoesBancarias", JSON.stringify(transacoes))
+
+      return true
+    } catch (error) {
+      console.error("Erro ao adicionar transação bancária para reposição:", error)
+      return false
+    }
+  }
+
   const adicionarMovimentoFundoManeio = (movimento: Partial<Movimento>): string | null => {
     if (!movimento.data || !movimento.tipo || !movimento.valor || !movimento.descricao) {
       toast({
@@ -173,7 +489,7 @@ export function FundoManeio() {
       return null
     }
 
-    const novoId = Date.now().toString()
+    const novoId = uuidv4()
     const novoMovimentoCompleto: Movimento = {
       id: novoId,
       data: movimento.data,
@@ -251,7 +567,7 @@ export function FundoManeio() {
           movimento.tipo === "entrada" ? saldoInicial + movimento.valor : saldoInicial - movimento.valor
 
         const novoFundo: FundoManeioMensal = {
-          id: novoId,
+          id: uuidv4(),
           mes: startOfMonth(movimento.data),
           movimentos: [novoMovimentoCompleto],
           saldoInicial: saldoInicial,
@@ -312,6 +628,29 @@ export function FundoManeio() {
       .reduce((sum, m) => sum + m.valor, 0)
 
     return fundoManeioAtual.saldoInicial + totalEntradas - totalSaidas
+  }
+
+  // Função para reparar dados corrompidos
+  const repararDados = () => {
+    try {
+      // Limpar dados do fundo de maneio
+      localStorage.removeItem("fundosManeio")
+
+      // Recarregar a página para inicializar com dados limpos
+      window.location.reload()
+
+      toast({
+        title: "Dados reparados",
+        description: "Os dados do fundo de maneio foram reparados. A página será recarregada.",
+      })
+    } catch (error) {
+      console.error("Erro ao reparar dados:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao tentar reparar os dados.",
+        variant: "destructive",
+      })
+    }
   }
 
   const handlePrint = () => {
@@ -398,7 +737,7 @@ export function FundoManeio() {
     }
 
     const novoFundoProximoMes: FundoManeioMensal = {
-      id: Date.now().toString(),
+      id: uuidv4(),
       mes: startOfMonth(proximoMes),
       movimentos: [],
       saldoInicial: mesAtual.saldoFinal,
@@ -432,46 +771,73 @@ export function FundoManeio() {
     window.fundoManeio = {
       adicionarMovimentoFundoManeio: (movimento: any) => {
         try {
-          // Carregar fundos de maneio existentes
-          const fundosManeio = JSON.parse(localStorage.getItem("fundosManeio") || "[]", (key, value) => {
-            if (key === "mes" || key === "data") {
-              return new Date(value)
-            }
-            return value
-          })
-
-          // Verificar se há pelo menos um fundo de maneio
-          if (fundosManeio.length === 0) {
+          // Verificar se os dados necessários estão presentes
+          if (!movimento.valor || movimento.valor <= 0 || !movimento.tipo) {
             toast({
               title: "Erro",
-              description: "Não há fundos de maneio disponíveis.",
+              description: "Dados incompletos para adicionar movimento ao fundo de maneio.",
               variant: "destructive",
             })
             return null
+          }
+
+          // Carregar fundos de maneio existentes
+          const fundosManeioString = localStorage.getItem("fundosManeio")
+          let fundosManeio = []
+
+          if (fundosManeioString) {
+            try {
+              fundosManeio = JSON.parse(fundosManeioString, (key, value) => {
+                if (key === "mes" || key === "data") {
+                  return validarData(value)
+                }
+                return value
+              })
+            } catch (error) {
+              console.error("Erro ao processar fundos de maneio:", error)
+              fundosManeio = []
+              // Fazer backup dos dados corrompidos
+              localStorage.setItem("fundosManeio_backup", fundosManeioString)
+            }
+          }
+
+          // Verificar se há pelo menos um fundo de maneio
+          if (fundosManeio.length === 0) {
+            // Criar um fundo de maneio inicial se não existir
+            const novoFundo = {
+              id: uuidv4(),
+              mes: startOfMonth(new Date()),
+              movimentos: [],
+              saldoInicial: 0,
+              saldoFinal: 0,
+            }
+            fundosManeio.push(novoFundo)
           }
 
           // Usar o primeiro fundo de maneio disponível
           const fundo = fundosManeio[0]
 
-          // Verificar se há saldo suficiente
-          const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
-          if (movimento.tipo === "saida" && saldoAtual < movimento.valor) {
-            toast({
-              title: "Erro",
-              description: `Saldo insuficiente no fundo de maneio. Saldo atual: ${saldoAtual.toFixed(2)} MZN`,
-              variant: "destructive",
-            })
-            return null
+          // Verificar se há saldo suficiente para saídas
+          if (movimento.tipo === "saida") {
+            const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
+            if (saldoAtual < movimento.valor) {
+              toast({
+                title: "Erro",
+                description: `Saldo insuficiente no fundo de maneio. Saldo atual: ${saldoAtual.toFixed(2)} MZN`,
+                variant: "destructive",
+              })
+              return null
+            }
           }
 
           // Criar ID para o novo movimento
-          const movimentoId = Date.now().toString()
+          const movimentoId = uuidv4()
 
           // Adicionar o movimento ao fundo
           const novoMovimento = {
             ...movimento,
             id: movimentoId,
-            data: movimento.data || new Date(),
+            data: validarData(movimento.data) || new Date(),
           }
 
           if (!fundo.movimentos) {
@@ -481,6 +847,7 @@ export function FundoManeio() {
           fundo.movimentos.push(novoMovimento)
 
           // Atualizar o saldo final
+          const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
           fundo.saldoFinal = movimento.tipo === "entrada" ? saldoAtual + movimento.valor : saldoAtual - movimento.valor
 
           // Salvar fundos atualizados
@@ -488,6 +855,11 @@ export function FundoManeio() {
 
           // Atualizar o estado local para refletir as mudanças
           setFundosManeio(fundosManeio)
+
+          toast({
+            title: "Movimento adicionado",
+            description: "O movimento foi adicionado ao fundo de maneio com sucesso.",
+          })
 
           return movimentoId
         } catch (error) {
@@ -508,6 +880,22 @@ export function FundoManeio() {
       },
     }
   }, [fundosManeio, fundoManeioAtual])
+
+  if (isLoading) {
+    return (
+      <PrintLayout title="Fundo de Maneio">
+        <Card>
+          <CardHeader className="bg-red-700 text-white">
+            <CardTitle>Fundo de Maneio</CardTitle>
+            <CardDescription className="text-red-100">Carregando dados...</CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 flex justify-center items-center h-64">
+            <p>Carregando dados do fundo de maneio...</p>
+          </CardContent>
+        </Card>
+      </PrintLayout>
+    )
+  }
 
   return (
     <PrintLayout title="Fundo de Maneio">
@@ -655,7 +1043,97 @@ export function FundoManeio() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              {/* Botão de Reposição de Fundo de Maneio */}
+              <Dialog open={isReposicaoDialogOpen} onOpenChange={setIsReposicaoDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-green-600 hover:bg-green-700">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Reposição
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[550px]">
+                  <DialogHeader>
+                    <DialogTitle className="text-xl">Reposição de Fundo de Maneio</DialogTitle>
+                    <DialogDescription>Registre uma reposição do fundo de maneio</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-6 py-6">
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <Label htmlFor="reposicao-data" className="text-sm font-medium mb-2 block">
+                          Data
+                        </Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start text-left font-normal h-10">
+                              {format(reposicao.data, "dd/MM/yyyy", { locale: pt })}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <Calendar
+                              mode="single"
+                              selected={reposicao.data}
+                              onSelect={(date) => setReposicao({ ...reposicao, data: date || new Date() })}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div>
+                        <Label htmlFor="reposicao-valor" className="text-sm font-medium mb-2 block">
+                          Valor <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="reposicao-valor"
+                          type="number"
+                          value={reposicao.valor || ""}
+                          onChange={(e) => setReposicao({ ...reposicao, valor: Number(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="reposicao-descricao" className="text-sm font-medium mb-2 block">
+                          Descrição
+                        </Label>
+                        <Input
+                          id="reposicao-descricao"
+                          value={reposicao.descricao}
+                          onChange={(e) => setReposicao({ ...reposicao, descricao: e.target.value })}
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-md border border-gray-200">
+                        <p>
+                          <span className="text-red-500">*</span> Campos obrigatórios
+                        </p>
+                        <p className="mt-1">
+                          A reposição criará automaticamente um pagamento e uma transação bancária associados.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsReposicaoDialogOpen(false)}>
+                      Cancelar
+                    </Button>
+                    <Button onClick={handleReposicaoFundoManeio} className="bg-green-600 hover:bg-green-700">
+                      Confirmar Reposição
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
               <Button onClick={handleTransportarSaldo}>Transportar Saldo</Button>
+
+              {/* Botão para reparar dados */}
+              <Button
+                variant="outline"
+                className="bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                onClick={repararDados}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Reparar Dados
+              </Button>
             </div>
           </div>
           <div className="text-2xl font-bold mb-4">Saldo Atual: {calcularSaldo().toFixed(2)} MZN</div>
@@ -678,7 +1156,11 @@ export function FundoManeio() {
                   <TableCell>{movimento.valor.toFixed(2)} MZN</TableCell>
                   <TableCell>{movimento.descricao}</TableCell>
                   <TableCell>
-                    {movimento.pagamentoId ? (
+                    {movimento.reposicaoId ? (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                        Reposição
+                      </Badge>
+                    ) : movimento.pagamentoId ? (
                       <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                         Pagamento
                       </Badge>
@@ -688,7 +1170,7 @@ export function FundoManeio() {
                   </TableCell>
                   <TableCell>
                     <div className="flex space-x-2">
-                      {movimento.pagamentoId ? (
+                      {movimento.pagamentoId || movimento.reposicaoId ? (
                         <Button variant="outline" size="sm" onClick={() => handleVerDetalhes(movimento)}>
                           <FileText className="h-4 w-4" />
                         </Button>
@@ -729,7 +1211,17 @@ export function FundoManeio() {
                     <Label className="text-right font-semibold">Descrição:</Label>
                     <div className="col-span-3">{movimentoSelecionado.descricao}</div>
                   </div>
-                  {movimentoSelecionado.pagamentoId && (
+                  {movimentoSelecionado.reposicaoId && (
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right font-semibold">Origem:</Label>
+                      <div className="col-span-3">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                          Reposição de Fundo de Maneio
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+                  {movimentoSelecionado.pagamentoId && !movimentoSelecionado.reposicaoId && (
                     <>
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label className="text-right font-semibold">Pagamento:</Label>

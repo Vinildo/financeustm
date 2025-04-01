@@ -223,14 +223,32 @@ export function ControloCheques() {
 
   // Expor a função handleAddCheque e o estado para o componente pai
   useEffect(() => {
+    // Expor as funções para o objeto global window para permitir comunicação entre componentes
     // @ts-ignore
     window.controloCheques = {
-      handleAddCheque,
+      handleAddCheque: (chequeData: any) => {
+        // Configurar os dados do cheque
+        setNewCheque({
+          numero: chequeData.numero,
+          dataEmissao: chequeData.dataEmissao || new Date(),
+          valor: chequeData.valor,
+          beneficiario: chequeData.beneficiario,
+          estado: "pendente",
+        })
+
+        // Configurar o pagamento selecionado
+        if (chequeData.pagamentoId) {
+          setPagamentoSelecionadoId(chequeData.pagamentoId)
+        }
+
+        // Chamar a função de adicionar cheque
+        return handleAddCheque()
+      },
       setNewCheque,
       setPagamentoSelecionadoId,
       setIsAddDialogOpen,
     }
-  }, [newCheque, pagamentoSelecionadoId])
+  }, [newCheque, pagamentoSelecionadoId, cheques])
 
   // Modificar a função handleCompensarCheque para salvar no localStorage
   // Substitua a função handleCompensarCheque existente com esta versão:
