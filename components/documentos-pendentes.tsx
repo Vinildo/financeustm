@@ -9,19 +9,18 @@ import { format } from "date-fns"
 import { pt } from "date-fns/locale"
 import { useAppContext } from "@/contexts/AppContext"
 import { LembreteDocumentos } from "@/components/lembrete-documentos"
-import { FileCheck, FileX, Receipt, AlertTriangle } from "lucide-react"
+import { FileCheck, FileX, Receipt, AlertTriangle, Percent } from "lucide-react"
 
 export function DocumentosPendentes() {
   const { fornecedores } = useAppContext()
   const [pagamentoSelecionado, setPagamentoSelecionado] = useState<any | null>(null)
 
-  // Obter todos os pagamentos pagos que precisam de documentos
-  // Apenas pagamentos com estado "pago" são considerados
+  // Obter todos os pagamentos pagos ou parcialmente pagos que precisam de documentos
   const pagamentosPendentesDocumentos = fornecedores.flatMap((fornecedor) =>
     fornecedor.pagamentos
       .filter((pagamento) => {
-        // Se o pagamento está pago
-        if (pagamento.estado !== "pago") return false
+        // Se o pagamento está pago ou parcialmente pago
+        if (pagamento.estado !== "pago" && pagamento.estado !== "parcialmente pago") return false
 
         // Verificar quais documentos são necessários com base no tipo
         if (pagamento.tipo === "fatura") {
@@ -61,6 +60,7 @@ export function DocumentosPendentes() {
                 <TableHead className="font-semibold">Valor</TableHead>
                 <TableHead className="font-semibold">Data Pagamento</TableHead>
                 <TableHead className="font-semibold">Tipo</TableHead>
+                <TableHead className="font-semibold">Estado</TableHead>
                 {/* Mostrar colunas de documentos condicionalmente */}
                 <TableHead className="font-semibold">Factura</TableHead>
                 <TableHead className="font-semibold">Recibo</TableHead>
@@ -77,6 +77,11 @@ export function DocumentosPendentes() {
                   <TableCell>{pagamento.fornecedorNome}</TableCell>
                   <TableCell>
                     {pagamento.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}
+                    {pagamento.estado === "parcialmente pago" && pagamento.valorPago && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Pago: {pagamento.valorPago.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     {pagamento.dataPagamento
@@ -87,6 +92,21 @@ export function DocumentosPendentes() {
                     <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                       {pagamento.tipo === "fatura" ? "Fatura" : pagamento.tipo === "vd" ? "VD" : "Cotação"}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {pagamento.estado === "parcialmente pago" ? (
+                      <Badge
+                        variant="outline"
+                        className="bg-purple-50 text-purple-700 border-purple-200 flex items-center"
+                      >
+                        <Percent className="mr-1 h-3 w-3" />
+                        Parcial
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                        Pago
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     {/* Mostrar status da fatura apenas se for relevante para este tipo de pagamento */}
@@ -110,7 +130,7 @@ export function DocumentosPendentes() {
                       (pagamento.reciboRecebido ? (
                         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                           <Receipt className="mr-1 h-4 w-4" />
-                          Recebida
+                          Recebido
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">

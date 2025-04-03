@@ -597,38 +597,6 @@ export function ReconciliacaoBancaria() {
     }
   }
 
-  // Adicionar uma função para criar transações bancárias a partir de pagamentos
-  // Adicionar esta função após a função processarArquivoExcel:
-
-  // Função para adicionar transação bancária a partir de um pagamento
-  const adicionarTransacaoBancariaParaPagamento = (pagamento: any) => {
-    if (!pagamento) return
-
-    // Criar uma transação bancária para este pagamento
-    const transacao: TransacaoBancaria = {
-      id: `pag-${pagamento.id || Date.now()}`,
-      data: pagamento.dataPagamento || new Date(),
-      descricao: `Transferência - ${pagamento.fornecedorNome || "Fornecedor"} - ${pagamento.referencia || "Sem referência"}`,
-      valor: pagamento.valor || 0,
-      tipo: "debito",
-      reconciliado: false,
-      pagamentoId: pagamento.id,
-      metodo: "transferencia",
-      origem: "manual",
-      observacoes: pagamento.observacoes || "Transferência bancária",
-      referencia: pagamento.referencia || "",
-    }
-
-    setTransacoes((prev) => [...prev, transacao])
-
-    toast({
-      title: "Transação adicionada",
-      description: "Uma transação bancária foi adicionada para este pagamento.",
-    })
-
-    return transacao.id
-  }
-
   // Validar formulário de transação manual
   const validarFormulario = () => {
     const erros: Record<string, string> = {}
@@ -842,14 +810,6 @@ export function ReconciliacaoBancaria() {
   const handleProximoMes = () => {
     setMesSelecionado((mesAtual) => addMonths(mesAtual, 1))
   }
-
-  // Expor a função para o objeto global window
-  useEffect(() => {
-    // @ts-ignore
-    window.reconciliacaoBancaria = {
-      adicionarTransacaoBancariaParaPagamento,
-    }
-  }, [])
 
   return (
     <PrintLayout title="Reconciliação Bancária">

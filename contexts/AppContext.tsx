@@ -26,7 +26,7 @@ interface AppContextType {
   updatePagamento: (fornecedorId: string, pagamento: Pagamento) => Promise<Pagamento>
   deletePagamento: (fornecedorId: string, pagamentoId: string) => Promise<boolean>
   users: User[]
-  addUser: (userData: Partial<User>) => Promise<User>
+  addUser: (user: Omit<User, "id" | "isActive" | "forcePasswordChange"> | User) => Promise<User>
   updateUser: (user: User) => Promise<User>
   deleteUser: (id: string) => Promise<boolean>
   currentUser: User | null
@@ -592,35 +592,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // Adicionar usuário
-  const addUser = useCallback(async (userData: Partial<User>) => {
+  const addUser = useCallback(async (user: Omit<User, "id" | "isActive" | "forcePasswordChange"> | User) => {
     try {
-      // Garantir que o ID seja único
-      const newUser: User = {
-        id: userData.id || Date.now().toString(),
-        username: userData.username || "",
-        fullName: userData.fullName || "",
-        email: userData.email || "",
-        role: userData.role || "user",
-        isActive: userData.isActive !== undefined ? userData.isActive : true,
-        forcePasswordChange: userData.forcePasswordChange || false,
-        password: userData.password,
-      }
+      // Verificar se o usuário já tem um ID (usuário completo)
+      const newUser: User =
+        "id" in user
+          ? (user as User)
+          : {
+              ...user,
+              id: uuidv4(),
+              isActive: true,
+              forcePasswordChange: true,
+            }
 
-      // Adicionar o usuário ao estado
-      setUsers((prevUsers) => {
-        const updatedUsers = [...prevUsers, newUser]
+      // Adicionar usuário no Supabase
+      const addedUser = await UserService.addUser(newUser)
 
-        // Atualizar o localStorage
-        try {
-          localStorage.setItem("users", JSON.stringify(updatedUsers))
-        } catch (e) {
-          console.error("Erro ao salvar usuários no localStorage:", e)
+      // Atualizar estado local
+      setUsers((prev) => {
+        if (prev.some((u) => u.id === addedUser.id)) {
+          console.log(`Usuário com ID ${addedUser.id} já existe.`)
+          return prev
         }
 
-        return updatedUsers
+        return [...prev, addedUser]
       })
 
-      return newUser
+      return addedUser
     } catch (error) {
       console.error("Erro ao adicionar usuário:", error)
       throw error

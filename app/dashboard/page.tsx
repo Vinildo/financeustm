@@ -12,7 +12,7 @@ import { ControloCheques } from "@/components/controlo-cheques"
 import { FundoManeio } from "@/components/fundo-maneio"
 import { UserManagement } from "@/components/user-management"
 import { ExtratoFornecedor } from "@/components/extrato-fornecedor"
-import { AppProvider, useAppContext } from "@/contexts/AppContext"
+import { useAppContext } from "@/contexts/AppContext"
 import { ReconciliacaoBancaria } from "@/components/reconciliacao-bancaria"
 import { ReconciliacaoInterna } from "@/components/reconciliacao-interna"
 import { PrevisaoOrcamento } from "@/components/previsao-orcamento"
@@ -22,6 +22,7 @@ import { DemonstracaoResultados } from "@/components/demonstracao-resultados"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChevronDown, Database } from "lucide-react"
 import { WorkflowDashboard } from "@/components/workflow-dashboard"
+import { HelpSystem } from "@/components/help-system"
 
 // Componente estático para o cabeçalho do dashboard
 const DashboardHeader = memo(({ title }) => <div className="text-2xl font-bold mb-4 sm:mb-0">{title}</div>)
@@ -88,8 +89,17 @@ const ContentArea = ({ activeTab, isAdmin }) => {
   )
 }
 
-// Componente principal do dashboard com estado estável
-function StableDashboard() {
+// Componente principal do dashboard
+export default function Dashboard() {
+  return (
+    <PageTransition>
+      <DashboardContent />
+    </PageTransition>
+  )
+}
+
+// Componente de conteúdo do dashboard que usa o contexto
+function DashboardContent() {
   // Usar useRef para o estado inicial para evitar re-renderizações
   const [activeTab, setActiveTab] = useState("pagamentos")
   const { currentUser, logout } = useAppContext()
@@ -232,18 +242,8 @@ function StableDashboard() {
       </nav>
 
       <ContentArea activeTab={activeTab} isAdmin={isAdmin} />
+      <HelpSystem />
     </div>
-  )
-}
-
-// Componente principal com transição de página
-export default function Dashboard() {
-  return (
-    <AppProvider>
-      <PageTransition>
-        <StableDashboard />
-      </PageTransition>
-    </AppProvider>
   )
 }
 

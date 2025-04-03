@@ -1,13 +1,17 @@
-/**
- * Utilitários para o Fundo de Maneio
- * Este arquivo contém funções para manipular dados do fundo de maneio
- */
+// Funções utilitárias para gerenciar fundos de maneio
 
-import { v4 as uuidv4 } from "uuid"
-import { carregarDoLocalStorage, salvarNoLocalStorage } from "./storage-utils"
+// Tipo para representar um fundo de maneio
+export interface FundoManeio {
+  id: string
+  nome: string
+  mes: Date // Mês de referência
+  saldoInicial: number
+  saldoFinal: number
+  movimentos: Movimento[]
+}
 
-// Tipos
-export type Movimento = {
+// Tipo para representar um movimento no fundo de maneio
+export interface Movimento {
   id: string
   data: Date
   tipo: "entrada" | "saida"
@@ -16,125 +20,186 @@ export type Movimento = {
   pagamentoId?: string
   pagamentoReferencia?: string
   fornecedorNome?: string
-  reposicaoId?: string
 }
 
-export type FundoManeioMensal = {
-  id: string
-  mes: Date
-  movimentos: Movimento[]
-  saldoInicial: number
-  saldoFinal: number
+// Inicializar o sistema de fundos de maneio
+export function inicializarSistemaFundoManeio() {
+  // Verificar se já existe a estrutura de fundos de maneio no localStorage
+  const fundos = localStorage.getItem("fundosManeio")
+  if (!fundos) {
+    // Inicializar com um array vazio
+    localStorage.setItem("fundosManeio", JSON.stringify([]))
+  }
 }
 
-/**
- * Função para adicionar um movimento ao fundo de maneio
- */
-export function adicionarMovimentoFundoManeio(movimento: Partial<Movimento>): string | null {
+// Criar um novo fundo de maneio
+export function criarFundoManeio(fundo: Omit<FundoManeio, "id" | "movimentos" | "saldoFinal">) {
   try {
-    // Validar dados
-    if (!movimento.tipo || !movimento.valor || movimento.valor <= 0) {
-      console.error("Dados incompletos para adicionar movimento ao fundo de maneio")
-      return null
+    // Carregar fundos existentes
+    const fundosString = localStorage.getItem("fundosManeio")
+    const fundos = fundosString
+      ? JSON.parse(fundosString, (key, value) => {
+          if (key === "mes" || key === "data") {
+            return new Date(value)
+          }
+          return value
+        })
+      : []
+
+    // Criar o novo fundo
+    const novoFundo: FundoManeio = {
+      id: `fundo-${Date.now()}`,
+      movimentos: [],
+      saldoFinal: fundo.saldoInicial,
+      ...fundo,
+      mes: fundo.mes instanceof Date ? fundo.mes : new Date(fundo.mes),
     }
 
-    // Carregar fundos de maneio
-    const fundosManeio = carregarDoLocalStorage<FundoManeioMensal[]>("fundosManeio", [])
+    // Adicionar à lista
+    fundos.push(novoFundo)
 
-    // Verificar se há pelo menos um fundo de maneio
-    if (fundosManeio.length === 0) {
-      // Criar um fundo de maneio inicial
-      fundosManeio.push({
-        id: uuidv4(),
-        mes: new Date(),
-        movimentos: [],
-        saldoInicial: 0,
-        saldoFinal: 0,
-      })
-    }
+    // Salvar no localStorage
+    localStorage.setItem("fundosManeio", JSON.stringify(fundos))
 
-    // Usar o primeiro fundo de maneio disponível
-    const fundo = fundosManeio[0]
+    return novoFundo.id
+  } catch (error) {
+    console.error("Erro ao criar fundo de maneio:", error)
+    return null
+  }
+}
 
-    // Verificar se há saldo suficiente para saídas
-    if (movimento.tipo === "saida") {
-      const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
-      if (saldoAtual < movimento.valor) {
-        console.error(`Saldo insuficiente no fundo de maneio. Saldo atual: ${saldoAtual.toFixed(2)} MZN`)
-        return null
+// Adicionar um movimento a um fundo de maneio
+export function adicionarMovimento(fundoId: string, movimento: Omit<Movimento, "id">) {
+  try {
+    // Carregar fundos existentes
+    const fundosString = localStorage.getItem("fundosManeio")
+    if (!fundosString) return null
+
+    const fundos = JSON.parse(fundosString, (key, value) => {
+      if (key === "mes" || key === "data") {
+        return new Date(value)
       }
-    }
+      return value
+    })
+
+    // Encontrar o fundo pelo ID
+    const fundoIndex = fundos.findIndex((f: FundoManeio) => f.id === fundoId)
+    if (fundoIndex === -1) return null
 
     // Criar o novo movimento
-    const movimentoId = uuidv4()
     const novoMovimento: Movimento = {
-      id: movimentoId,
-      data: movimento.data || new Date(),
-      tipo: movimento.tipo,
-      valor: movimento.valor,
-      descricao: movimento.descricao || "Movimento sem descrição",
-      pagamentoId: movimento.pagamentoId,
-      pagamentoReferencia: movimento.pagamentoReferencia,
-      fornecedorNome: movimento.fornecedorNome,
-      reposicaoId: movimento.reposicaoId,
+      id: `movimento-${Date.now()}`,
+      ...movimento,
+      data: movimento.data instanceof Date ? movimento.data : new Date(movimento.data),
     }
 
     // Adicionar o movimento ao fundo
-    if (!fundo.movimentos) {
-      fundo.movimentos = []
+    if (!fundos[fundoIndex].movimentos) {
+      fundos[fundoIndex].movimentos = []
     }
-
-    fundo.movimentos.push(novoMovimento)
+    fundos[fundoIndex].movimentos.push(novoMovimento)
 
     // Atualizar o saldo final
-    const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
-    fundo.saldoFinal = movimento.tipo === "entrada" ? saldoAtual + movimento.valor : saldoAtual - movimento.valor
+    if (movimento.tipo === "entrada") {
+      fundos[fundoIndex].saldoFinal += movimento.valor
+    } else {
+      fundos[fundoIndex].saldoFinal -= movimento.valor
+    }
 
-    // Salvar os dados atualizados
-    salvarNoLocalStorage("fundosManeio", fundosManeio)
+    // Salvar no localStorage
+    localStorage.setItem("fundosManeio", JSON.stringify(fundos))
 
-    return movimentoId
+    return novoMovimento.id
   } catch (error) {
     console.error("Erro ao adicionar movimento ao fundo de maneio:", error)
     return null
   }
 }
 
-/**
- * Função para obter o saldo atual do fundo de maneio
- */
-export function getSaldoAtualFundoManeio(): number {
+// Obter todos os fundos de maneio
+export function obterTodosFundosManeio(): FundoManeio[] {
   try {
-    const fundosManeio = carregarDoLocalStorage<FundoManeioMensal[]>("fundosManeio", [])
-    if (fundosManeio.length === 0) return 0
+    // Carregar fundos existentes
+    const fundosString = localStorage.getItem("fundosManeio")
+    if (!fundosString) return []
 
-    const fundo = fundosManeio[0]
-    return fundo.saldoFinal || fundo.saldoInicial || 0
+    return JSON.parse(fundosString, (key, value) => {
+      if (key === "mes" || key === "data") {
+        return new Date(value)
+      }
+      return value
+    })
   } catch (error) {
-    console.error("Erro ao obter saldo do fundo de maneio:", error)
-    return 0
+    console.error("Erro ao obter todos os fundos de maneio:", error)
+    return []
   }
 }
 
-/**
- * Função para inicializar o fundo de maneio global
- * Esta função deve ser chamada no início da aplicação
- */
-export function inicializarFundoManeioGlobal(): void {
+// Obter um fundo de maneio pelo ID
+export function obterFundoManeioPorId(fundoId: string): FundoManeio | null {
   try {
-    // @ts-ignore
-    window.fundoManeio = {
-      adicionarMovimentoFundoManeio,
-      getSaldoAtual: getSaldoAtualFundoManeio,
-      getFundoManeioAtual: () => {
-        const fundosManeio = carregarDoLocalStorage<FundoManeioMensal[]>("fundosManeio", [])
-        return fundosManeio.length > 0 ? fundosManeio[0] : null
-      },
+    // Carregar fundos existentes
+    const fundosString = localStorage.getItem("fundosManeio")
+    if (!fundosString) return null
+
+    const fundos = JSON.parse(fundosString, (key, value) => {
+      if (key === "mes" || key === "data") {
+        return new Date(value)
+      }
+      return value
+    })
+
+    // Encontrar o fundo pelo ID
+    const fundo = fundos.find((f: FundoManeio) => f.id === fundoId)
+    return fundo || null
+  } catch (error) {
+    console.error("Erro ao obter fundo de maneio por ID:", error)
+    return null
+  }
+}
+
+// Remover um movimento de um fundo de maneio
+export function removerMovimento(fundoId: string, movimentoId: string): boolean {
+  try {
+    // Carregar fundos existentes
+    const fundosString = localStorage.getItem("fundosManeio")
+    if (!fundosString) return false
+
+    const fundos = JSON.parse(fundosString, (key, value) => {
+      if (key === "mes" || key === "data") {
+        return new Date(value)
+      }
+      return value
+    })
+
+    // Encontrar o fundo pelo ID
+    const fundoIndex = fundos.findIndex((f: FundoManeio) => f.id === fundoId)
+    if (fundoIndex === -1) return false
+
+    // Encontrar o movimento pelo ID
+    const movimentoIndex = fundos[fundoIndex].movimentos.findIndex((m: Movimento) => m.id === movimentoId)
+    if (movimentoIndex === -1) return false
+
+    // Obter o movimento antes de removê-lo
+    const movimento = fundos[fundoIndex].movimentos[movimentoIndex]
+
+    // Atualizar o saldo final
+    if (movimento.tipo === "entrada") {
+      fundos[fundoIndex].saldoFinal -= movimento.valor
+    } else {
+      fundos[fundoIndex].saldoFinal += movimento.valor
     }
 
-    console.log("Fundo de Maneio inicializado globalmente")
+    // Remover o movimento
+    fundos[fundoIndex].movimentos.splice(movimentoIndex, 1)
+
+    // Salvar no localStorage
+    localStorage.setItem("fundosManeio", JSON.stringify(fundos))
+
+    return true
   } catch (error) {
-    console.error("Erro ao inicializar fundo de maneio global:", error)
+    console.error("Erro ao remover movimento do fundo de maneio:", error)
+    return false
   }
 }
 

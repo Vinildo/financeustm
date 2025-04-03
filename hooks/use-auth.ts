@@ -102,49 +102,45 @@ export function useAuth() {
 
       try {
         // Carregar usuários do localStorage ou usar os padrões
-        let usersToLoad = DEFAULT_USERS
+        const storedUsers = localStorage.getItem("users")
+        if (storedUsers) {
+          const parsedUsers = JSON.parse(storedUsers)
+          console.log("Usuários carregados do localStorage:", parsedUsers.length)
 
-        try {
-          const storedUsers = localStorage.getItem("users")
-          if (storedUsers) {
-            const parsedUsers = JSON.parse(storedUsers)
-            if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
-              usersToLoad = parsedUsers
-              console.log("Usuários carregados do localStorage:", parsedUsers.length)
-            } else {
-              // Se o array estiver vazio ou não for um array, usar os padrões
-              localStorage.setItem("users", JSON.stringify(DEFAULT_USERS))
-              console.log("Usuários padrão carregados (localStorage vazio):", DEFAULT_USERS.length)
+          // Se não houver usuários no contexto, adicionamos os usuários do localStorage
+          if (users.length === 0) {
+            for (const user of parsedUsers) {
+              // Verificar se o usuário já existe
+              if (!users.some((u) => u.id === user.id)) {
+                await addUser(user)
+              }
             }
-          } else {
-            // Se não houver usuários no localStorage, usar os padrões
-            localStorage.setItem("users", JSON.stringify(DEFAULT_USERS))
-            console.log("Usuários padrão carregados (sem localStorage):", DEFAULT_USERS.length)
           }
-        } catch (e) {
-          console.error("Erro ao carregar usuários do localStorage:", e)
+        } else {
+          // Se não houver usuários no localStorage, usar os padrões
+          if (users.length === 0) {
+            for (const user of DEFAULT_USERS) {
+              // Verificar se o usuário já existe
+              if (!users.some((u) => u.id === user.id)) {
+                await addUser(user)
+              }
+            }
+          }
           localStorage.setItem("users", JSON.stringify(DEFAULT_USERS))
-          console.log("Usuários padrão carregados (após erro):", DEFAULT_USERS.length)
-        }
-
-        // Adicionar usuários ao contexto
-        for (const user of usersToLoad) {
-          if (!users.some((u) => u.id === user.id)) {
-            await addUser(user)
-          }
+          console.log("Usuários padrão carregados:", DEFAULT_USERS.length)
         }
 
         // Try to get the stored user from localStorage
-        try {
-          const storedUserJson = localStorage.getItem("currentUser")
-          if (storedUserJson && !currentUser) {
+        const storedUserJson = localStorage.getItem("currentUser")
+        if (storedUserJson && !currentUser) {
+          try {
             const storedUser = JSON.parse(storedUserJson)
             setCurrentUser(storedUser)
             console.log("Usuário atual carregado:", storedUser.username)
+          } catch (e) {
+            console.error("Error parsing stored user:", e)
+            localStorage.removeItem("currentUser")
           }
-        } catch (e) {
-          console.error("Error parsing stored user:", e)
-          localStorage.removeItem("currentUser")
         }
 
         // Always set hasAdmin to true since we have default admin users

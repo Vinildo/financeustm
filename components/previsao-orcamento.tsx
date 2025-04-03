@@ -1,11 +1,17 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Progress } from "@/components/ui/progress"
 import { toast } from "@/components/ui/use-toast"
 import { PrintLayout } from "@/components/print-layout"
-import { Printer } from "lucide-react"
+import { Printer, ChevronLeft, ChevronRight, Plus, Edit, Trash2, BarChart4, FileSpreadsheet } from "lucide-react"
 import { format, startOfMonth, endOfMonth, addMonths, subMonths, getYear, getMonth } from "date-fns"
 import * as XLSX from "xlsx"
 import { useAppContext } from "@/contexts/AppContext"
@@ -271,7 +277,9 @@ export function PrevisaoOrcamento() {
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
               <CardTitle>Previsão e Orçamento</CardTitle>
-              <CardDescription>Gerencie o orçamento mensal e acompanhe a execução</CardDescription>
+              <CardDescription className="text-gray-100">
+                Gerencie o orçamento mensal e acompanhe a execução
+              </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button onClick={handlePrint} className="print:hidden bg-gray-200 text-gray-800 hover:bg-gray-300">
@@ -279,13 +287,364 @@ export function PrevisaoOrcamento() {
                 Imprimir
               </Button>
               <Button onClick={handleExportExcel} className="print:hidden bg-gray-200 text-gray-800 hover:bg-gray-300">
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
                 Exportar Excel
               </Button>
             </div>
           </div>
         </CardHeader>
-        {/* Conteúdo do Card */}
+        <CardContent className="p-6">
+          {/* Navegação entre meses */}
+          <div className="flex justify-between items-center mb-6">
+            <Button variant="outline" onClick={handleMesAnterior}>
+              <ChevronLeft className="h-4 w-4 mr-2" />
+              Mês Anterior
+            </Button>
+            <h2 className="text-xl font-bold">{format(mesSelecionado, "MMMM yyyy")}</h2>
+            <Button variant="outline" onClick={handleProximoMes}>
+              Próximo Mês
+              <ChevronRight className="h-4 w-4 ml-2" />
+            </Button>
+          </div>
+
+          {/* Tabs para alternar entre visualizações */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger value="orcamento">Orçamento</TabsTrigger>
+              <TabsTrigger value="grafico">Gráfico de Execução</TabsTrigger>
+            </TabsList>
+
+            {/* Conteúdo da Tab Orçamento */}
+            <TabsContent value="orcamento" className="space-y-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Itens do Orçamento</h3>
+                <Button onClick={() => setIsAddDialogOpen(true)} className="bg-red-600 hover:bg-red-700">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Adicionar Item
+                </Button>
+              </div>
+
+              {orcamentoAtual && orcamentoAtual.itens.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Departamento</TableHead>
+                      <TableHead>Valor Previsto</TableHead>
+                      <TableHead>Valor Realizado</TableHead>
+                      <TableHead>% Execução</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orcamentoAtual.itens.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.departamento}</TableCell>
+                        <TableCell>
+                          {item.valorPrevisto.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                        </TableCell>
+                        <TableCell>
+                          {(valoresRealizados[item.departamento] || 0).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "MZN",
+                          })}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Progress
+                              value={
+                                valoresRealizados[item.departamento]
+                                  ? Math.min(
+                                      100,
+                                      Math.round((valoresRealizados[item.departamento] / item.valorPrevisto) * 100),
+                                    )
+                                  : 0
+                              }
+                              className="h-2 w-[60px]"
+                            />
+                            <span>
+                              {valoresRealizados[item.departamento]
+                                ? Math.round((valoresRealizados[item.departamento] / item.valorPrevisto) * 100)
+                                : 0}
+                              %
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{item.descricao}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setItemEditando(item)
+                                setIsEditDialogOpen(true)
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteItem(item.id)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {/* Linha de total */}
+                    <TableRow className="font-bold bg-gray-50">
+                      <TableCell>TOTAL</TableCell>
+                      <TableCell>
+                        {totalPrevisto.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                      </TableCell>
+                      <TableCell>
+                        {totalRealizado.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Progress value={percentualTotal} className="h-2 w-[60px]" />
+                          <span>{percentualTotal}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell></TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="text-center py-8 bg-gray-50 rounded-md">
+                  <BarChart4 className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-1">Nenhum item no orçamento</h3>
+                  <p className="text-gray-500 mb-4">
+                    Adicione itens ao orçamento para começar a acompanhar a execução.
+                  </p>
+                  <Button onClick={() => setIsAddDialogOpen(true)} className="bg-red-600 hover:bg-red-700">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar Primeiro Item
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Conteúdo da Tab Gráfico */}
+            <TabsContent value="grafico">
+              {orcamentoAtual && orcamentoAtual.itens.length > 0 ? (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold">Execução do Orçamento por Departamento</h3>
+
+                  <div className="space-y-4">
+                    {dadosGrafico.map((item) => (
+                      <div key={item.departamento} className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="font-medium">{item.departamento}</span>
+                          <span>{item.percentual}%</span>
+                        </div>
+                        <div className="relative pt-1">
+                          <div className="flex mb-2 items-center justify-between">
+                            <div>
+                              <span className="text-xs font-semibold inline-block text-gray-600">
+                                Realizado:{" "}
+                                {item.realizado.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs font-semibold inline-block text-gray-600">
+                                Previsto:{" "}
+                                {item.previsto.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-gray-200">
+                            <div
+                              style={{ width: `${Math.min(100, item.percentual)}%` }}
+                              className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${
+                                item.percentual > 100
+                                  ? "bg-red-500"
+                                  : item.percentual > 80
+                                    ? "bg-yellow-500"
+                                    : "bg-green-500"
+                              }`}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Total */}
+                    <div className="pt-4 border-t border-gray-200 mt-6">
+                      <div className="flex justify-between">
+                        <span className="font-bold">TOTAL</span>
+                        <span className="font-bold">{percentualTotal}%</span>
+                      </div>
+                      <div className="relative pt-1">
+                        <div className="flex mb-2 items-center justify-between">
+                          <div>
+                            <span className="text-xs font-semibold inline-block text-gray-600">
+                              Realizado:{" "}
+                              {totalRealizado.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-semibold inline-block text-gray-600">
+                              Previsto: {totalPrevisto.toLocaleString("pt-BR", { style: "currency", currency: "MZN" })}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="overflow-hidden h-3 mb-4 text-xs flex rounded bg-gray-200">
+                          <div
+                            style={{ width: `${Math.min(100, percentualTotal)}%` }}
+                            className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${
+                              percentualTotal > 100
+                                ? "bg-red-500"
+                                : percentualTotal > 80
+                                  ? "bg-yellow-500"
+                                  : "bg-green-500"
+                            }`}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-gray-50 rounded-md">
+                  <BarChart4 className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-1">Nenhum dado para exibir</h3>
+                  <p className="text-gray-500 mb-4">
+                    Adicione itens ao orçamento para visualizar o gráfico de execução.
+                  </p>
+                  <Button
+                    onClick={() => {
+                      setActiveTab("orcamento")
+                      setIsAddDialogOpen(true)
+                    }}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar Item ao Orçamento
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
       </Card>
+
+      {/* Diálogo para adicionar item */}
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Adicionar Item ao Orçamento</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="departamento" className="text-right">
+                Departamento
+              </Label>
+              <Input
+                id="departamento"
+                value={novoItem.departamento || ""}
+                onChange={(e) => setNovoItem({ ...novoItem, departamento: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="valorPrevisto" className="text-right">
+                Valor Previsto
+              </Label>
+              <Input
+                id="valorPrevisto"
+                type="number"
+                value={novoItem.valorPrevisto || ""}
+                onChange={(e) => setNovoItem({ ...novoItem, valorPrevisto: Number.parseFloat(e.target.value) })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="descricao" className="text-right">
+                Descrição
+              </Label>
+              <Input
+                id="descricao"
+                value={novoItem.descricao || ""}
+                onChange={(e) => setNovoItem({ ...novoItem, descricao: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAddItem} className="bg-red-600 hover:bg-red-700">
+              Adicionar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo para editar item */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Editar Item do Orçamento</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-departamento" className="text-right">
+                Departamento
+              </Label>
+              <Input
+                id="edit-departamento"
+                value={itemEditando?.departamento || ""}
+                onChange={(e) =>
+                  setItemEditando(itemEditando ? { ...itemEditando, departamento: e.target.value } : null)
+                }
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-valorPrevisto" className="text-right">
+                Valor Previsto
+              </Label>
+              <Input
+                id="edit-valorPrevisto"
+                type="number"
+                value={itemEditando?.valorPrevisto || ""}
+                onChange={(e) =>
+                  setItemEditando(
+                    itemEditando ? { ...itemEditando, valorPrevisto: Number.parseFloat(e.target.value) } : null,
+                  )
+                }
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-descricao" className="text-right">
+                Descrição
+              </Label>
+              <Input
+                id="edit-descricao"
+                value={itemEditando?.descricao || ""}
+                onChange={(e) => setItemEditando(itemEditando ? { ...itemEditando, descricao: e.target.value } : null)}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditItem} className="bg-red-600 hover:bg-red-700">
+              Salvar Alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PrintLayout>
   )
 }

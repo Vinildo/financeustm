@@ -28,7 +28,20 @@ export interface Pagamento {
     steps: WorkflowStep[]
   }
   historico?: HistoryEntry[]
-  fornecedorNome?: string // Add this property
+  fornecedorNome?: string
+  // Adicionar campos para pagamentos parciais
+  valorOriginal?: number
+  pagamentosParciais?: PagamentoParcial[]
+  valorPendente?: number
+}
+
+export type PagamentoParcial = {
+  id: string
+  dataPagamento: Date
+  valor: number
+  metodo: string
+  referencia?: string
+  observacoes?: string
 }
 
 export type Fornecedor = {

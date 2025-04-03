@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import type { PagamentoParcial } from "@/types/fornecedor"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -61,6 +62,8 @@ export function getStatusColor(status: string): string {
       return "bg-red-100 text-red-800"
     case "cancelado":
       return "bg-gray-100 text-gray-800"
+    case "parcial":
+      return "bg-blue-100 text-blue-800"
     default:
       return "bg-blue-100 text-blue-800"
   }
@@ -186,5 +189,27 @@ export function generateFinancialYearOptions(
   }
 
   return options.reverse() // Mais recentes primeiro
+}
+
+// Funções para lidar com pagamentos parciais
+export function calcularValorPendente(valorOriginal: number, pagamentosParciais?: PagamentoParcial[]): number {
+  if (!pagamentosParciais || pagamentosParciais.length === 0) return valorOriginal
+
+  const totalPago = pagamentosParciais.reduce((total, pagamento) => total + pagamento.valor, 0)
+  return Math.max(0, valorOriginal - totalPago)
+}
+
+export function getStatusPagamento(estado: string, valorOriginal: number, valorPendente: number): string {
+  if (estado === "cancelado") return "cancelado"
+  if (valorPendente <= 0) return "pago"
+  if (valorPendente < valorOriginal) return "parcialmente pago"
+  return estado
+}
+
+export function calcularPercentualPago(valorOriginal: number, valorPendente: number): number {
+  if (valorOriginal <= 0) return 0
+  const valorPago = valorOriginal - valorPendente
+  const percentualPago = (valorPago / valorOriginal) * 100
+  return Math.round(Math.max(0, Math.min(100, percentualPago)))
 }
 

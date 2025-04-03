@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   History,
-  Wallet,
   FileSpreadsheet,
   Clock,
   AlertCircle,
@@ -72,14 +71,19 @@ import { WorkflowApproval } from "@/components/workflow-approval"
 import { v4 as uuidv4 } from "uuid"
 import { Textarea } from "@/components/ui/textarea"
 import type { Movimento } from "@/components/fundo-maneio"
-// Adicione esta importação no início do arquivo
-import { inicializarFundoManeioGlobal } from "@/lib/fundo-maneio-utils"
+// Importar utilitários
+import {
+  adicionarCheque,
+  verificarChequeExistente,
+  removerReferenciaChequePagamento,
+  inicializarSistemaCheques,
+} from "@/lib/cheque-utils"
 
 // Adicione este código no início do componente PagamentosTable
 export function PagamentosTable() {
-  // Inicializar o fundo de maneio global
+  // Inicializar o sistema de cheques
   useEffect(() => {
-    inicializarFundoManeioGlobal()
+    inicializarSistemaCheques()
   }, [])
 
   const { user } = useAuth()
@@ -241,12 +245,43 @@ export function PagamentosTable() {
     }
 
     try {
-      const filtered = pagamentosDoMes.filter(
-        (pagamento) =>
-          pagamento.referencia.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          pagamento.fornecedorNome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (pagamento.departamento && pagamento.departamento.toLowerCase().includes(searchTerm.toLowerCase())),
-      )
+      const filtered = pagamentosDoMes
+        .filter(
+          (pagamento) =>
+            pagamento.referencia.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            pagamento.fornecedorNome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (pagamento.departamento && pagamento.departamento.toLowerCase().includes(searchTerm.toLowerCase())),
+        )
+        .map((pagamento) => {
+          // Calcular valores para pagamentos parciais
+          const pagamentosParciais = pagamento.pagamentosParciais || []
+          const valorPago =
+            pagamentosParciais.length > 0
+              ? pagamentosParciais.reduce((total, p) => total + p.valor, 0)
+              : pagamento.estado === "pago"
+                ? pagamento.valor
+                : 0
+
+          const valorPendente = Math.max(0, pagamento.valor - valorPago)
+          const percentualPago = pagamento.valor > 0 ? (valorPago / pagamento.valor) * 100 : 0
+
+          // Determinar status baseado no pagamento parcial
+          let status = pagamento.estado
+          if (valorPago > 0 && valorPendente > 0) {
+            status = "parcialmente pago"
+          } else if (valorPendente <= 0 && valorPago > 0) {
+            status = "pago"
+          }
+
+          return {
+            ...pagamento,
+            valorPago: valorPago,
+            valorPendente: valorPendente,
+            percentualPago: percentualPago,
+            status: status,
+          }
+        })
+
       setFilteredPagamentos(filtered)
     } catch (error) {
       console.error("Error filtering payments by search term:", error)
@@ -704,8 +739,8 @@ export function PagamentosTable() {
         const descricao = `Pagamento a ${pagamentoSelecionado.fornecedorNome} - Ref: ${pagamentoSelecionado.referencia}`
 
         // Verificar se a função existe antes de chamar
-        if (typeof adicionarMovimentoFundoManeio === "function") {
-          const movimentoId = adicionarMovimentoFundoManeio({
+        if (fundoManeioRef.current && typeof fundoManeioRef.current.adicionarMovimentoFundoManeio === "function") {
+          const movimentoId = fundoManeioRef.current.adicionarMovimentoFundoManeio({
             data: pagamentoSelecionado.dataPagamento || new Date(),
             tipo: "saida",
             valor: pagamentoSelecionado.valor,
@@ -802,6 +837,7 @@ export function PagamentosTable() {
           title: "Erro ao atualizar pagamento",
           description: "Ocorreu um erro ao atualizar o pagamento. Por favor, tente novamente.",
           variant: "destructive",
+          variant: "destructive",
         })
       }
     }
@@ -842,756 +878,6 @@ export function PagamentosTable() {
     }
   }
 
-  // Função para verificar se já existe um cheque para o pagamento
-  const verificarChequeExistente = (pagamentoId: string) => {
-    try {
-      const cheques = JSON.parse(localStorage.getItem("cheques") || "[]")
-      return cheques.some((cheque: any) => cheque.pagamentoId === pagamentoId)
-    } catch (error) {
-      console.error("Erro ao verificar cheque existente:", error)
-      return false
-    }
-  }
-
-  // Função para remover referência ao pagamento no cheque
-  const removerReferenciaChequePagamento = (pagamentoId: string) => {
-    try {
-      const cheques = JSON.parse(localStorage.getItem("cheques") || "[]")
-
-      let atualizado = false
-
-      // Procurar o cheque e remover a referência ao pagamento
-      for (const cheque of cheques) {
-        if (cheque.pagamentoId === pagamentoId) {
-          cheque.pagamentoId = undefined
-          cheque.pagamentoReferencia = undefined
-          atualizado = true
-        }
-      }
-
-      if (atualizado) {
-        localStorage.setItem("cheques", JSON.stringify(cheques))
-      }
-    } catch (error) {
-      console.error("Erro ao remover referência ao pagamento no cheque:", error)
-    }
-  }
-
-  // Corrigir a função handleDeletePagamento para permitir a eliminação de operações
-  const handleDeletePagamento = (fornecedorId: string, pagamentoId: string) => {
-    console.log("Tentando eliminar pagamento:", { fornecedorId, pagamentoId })
-
-    // Check if context functions are available
-    if (!deletePagamento) {
-      console.error("Função deletePagamento não disponível")
-      toast({
-        title: "Erro ao eliminar pagamento",
-        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    try {
-      // Executar a eliminação do pagamento diretamente, sem verificações adicionais
-      deletePagamento(fornecedorId, pagamentoId)
-
-      toast({
-        title: "Pagamento eliminado",
-        description: "O pagamento foi removido com sucesso.",
-      })
-    } catch (error) {
-      console.error("Erro ao eliminar pagamento:", error)
-      toast({
-        title: "Erro ao eliminar pagamento",
-        description: "Ocorreu um erro ao eliminar o pagamento. Por favor, tente novamente.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  // Adicionar sincronização com o calendário fiscal ao marcar pagamento como pago
-  // Modifique a função handleMarkAsPaid:
-
-  const handleMarkAsPaid = (fornecedorId: string, pagamentoId: string) => {
-    // Check if context functions are available
-    if (!updatePagamento) {
-      toast({
-        title: "Erro ao marcar pagamento como pago",
-        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const pagamento = todosOsPagamentos.find((p) => p.id === pagamentoId)
-    if (pagamento) {
-      const pagamentoAtualizado = {
-        ...pagamento,
-        estado: "pago",
-        dataPagamento: new Date(),
-        facturaRecebida: false,
-        reciboRecebido: false,
-        vdRecebido: false,
-      }
-      updatePagamento(fornecedorId, pagamentoAtualizado)
-
-      // Atualizar evento correspondente no calendário fiscal
-      atualizarEventoCalendarioFiscal(pagamentoId)
-
-      // Mostrar o lembrete de documentos
-      setPagamentoParaDocumentos({
-        ...pagamentoAtualizado,
-        fornecedorId,
-        fornecedorNome: pagamento.fornecedorNome,
-      })
-
-      toast({
-        title: "Pagamento atualizado",
-        description: "O pagamento foi marcado como pago.",
-      })
-    }
-  }
-
-  // Adicionar esta nova função após handleMarkAsPaid:
-
-  // Função para atualizar evento no calendário fiscal
-  const atualizarEventoCalendarioFiscal = (pagamentoId: string) => {
-    // Carregar eventos do calendário fiscal
-    const eventosFiscaisString = localStorage.getItem("eventosFiscais")
-    if (!eventosFiscaisString) return
-
-    try {
-      const eventosFiscais = JSON.parse(eventosFiscaisString, (key, value) => {
-        if (key === "data") {
-          return new Date(value)
-        }
-        return value
-      })
-
-      // Atualizar eventos relacionados ao pagamento
-      const eventosAtualizados = eventosFiscais.map((evento) => {
-        if (evento.pagamentoId === pagamentoId) {
-          return { ...evento, concluido: true }
-        }
-        return evento
-      })
-
-      // Salvar eventos atualizados
-      localStorage.setItem("eventosFiscais", JSON.stringify(eventosAtualizados))
-    } catch (error) {
-      console.error("Erro ao atualizar evento no calendário fiscal:", error)
-    }
-  }
-
-  // Implementação simplificada da função adicionarMovimentoFundoManeio
-  const adicionarMovimentoFundoManeio = (movimento: any) => {
-    try {
-      // Carregar fundos de maneio existentes
-      const fundosManeio = JSON.parse(localStorage.getItem("fundosManeio") || "[]")
-
-      // Verificar se há pelo menos um fundo de maneio
-      if (fundosManeio.length === 0) {
-        toast({
-          title: "Erro",
-          description: "Não há fundos de maneio disponíveis.",
-          variant: "destructive",
-        })
-        return null
-      }
-
-      // Usar o primeiro fundo de maneio disponível
-      const fundo = fundosManeio[0]
-
-      // Criar ID para o novo movimento
-      const movimentoId = Date.now().toString()
-
-      // Adicionar o movimento ao fundo
-      const novoMovimento = {
-        ...movimento,
-        id: movimentoId,
-        data: new Date(),
-      }
-
-      if (!fundo.movimentos) {
-        fundo.movimentos = []
-      }
-
-      fundo.movimentos.push(novoMovimento)
-
-      // Salvar fundos atualizados
-      localStorage.setItem("fundosManeio", JSON.stringify(fundosManeio))
-
-      return movimentoId
-    } catch (error) {
-      console.error("Erro ao adicionar movimento ao fundo de maneio:", error)
-      return null
-    }
-  }
-
-  // Vamos melhorar a função handlePagarComFundoManeio para garantir que funcione corretamente
-
-  // Substitua a função handlePagarComFundoManeio existente por esta versão melhorada:
-  const handlePagarComFundoManeio = () => {
-    console.log("Iniciando pagamento com fundo de maneio...")
-
-    // Check if context functions are available
-    if (!updatePagamento) {
-      console.error("Função updatePagamento não disponível")
-      toast({
-        title: "Erro ao pagar com fundo de maneio",
-        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!pagamentoParaFundoManeio) {
-      console.error("Pagamento para fundo de maneio não selecionado")
-      toast({
-        title: "Erro",
-        description: "Pagamento não selecionado.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    console.log("Pagamento selecionado:", pagamentoParaFundoManeio)
-
-    // Usar uma descrição padrão se não for fornecida
-    const descricaoEfetiva =
-      descricaoFundoManeio ||
-      `Pagamento a ${pagamentoParaFundoManeio.fornecedorNome} - Ref: ${pagamentoParaFundoManeio.referencia}`
-
-    console.log("Descrição do movimento:", descricaoEfetiva)
-
-    try {
-      // Carregar fundos de maneio existentes
-      const fundosManeioString = localStorage.getItem("fundosManeio")
-      const fundosManeio = fundosManeioString
-        ? JSON.parse(fundosManeioString, (key, value) => {
-            if (key === "mes" || key === "data") {
-              return new Date(value)
-            }
-            return value
-          })
-        : []
-
-      // Verificar se há pelo menos um fundo de maneio
-      if (fundosManeio.length === 0) {
-        console.error("Não há fundos de maneio disponíveis")
-        toast({
-          title: "Erro",
-          description: "Não há fundos de maneio disponíveis.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Usar o primeiro fundo de maneio disponível
-      const fundo = fundosManeio[0]
-
-      // Criar ID para o novo movimento
-      const movimentoId = Date.now().toString()
-
-      // Adicionar o movimento ao fundo
-      const novoMovimento = {
-        id: movimentoId,
-        data: new Date(),
-        tipo: "saida",
-        valor: pagamentoParaFundoManeio.valor,
-        descricao: descricaoEfetiva,
-        pagamentoId: pagamentoParaFundoManeio.id,
-        pagamentoReferencia: pagamentoParaFundoManeio.referencia,
-        fornecedorNome: pagamentoParaFundoManeio.fornecedorNome,
-      }
-
-      if (!fundo.movimentos) {
-        fundo.movimentos = []
-      }
-
-      // Verificar se há saldo suficiente
-      const saldoAtual = fundo.saldoFinal || fundo.saldoInicial || 0
-      if (saldoAtual < pagamentoParaFundoManeio.valor) {
-        console.error("Saldo insuficiente no fundo de maneio")
-        toast({
-          title: "Erro",
-          description: `Saldo insuficiente no fundo de maneio. Saldo atual: ${saldoAtual.toFixed(2)} MZN`,
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Adicionar o movimento e atualizar o saldo
-      fundo.movimentos.push(novoMovimento)
-      fundo.saldoFinal = saldoAtual - pagamentoParaFundoManeio.valor
-
-      // Salvar fundos atualizados
-      localStorage.setItem("fundosManeio", JSON.stringify(fundosManeio))
-      console.log("Movimento adicionado ao fundo de maneio:", novoMovimento)
-
-      // Atualizar o pagamento
-      const pagamentoAtualizado = {
-        ...pagamentoParaFundoManeio,
-        estado: "pago",
-        dataPagamento: new Date(),
-        metodo: "fundo de maneio",
-        fundoManeioId: movimentoId,
-        observacoes: `${pagamentoParaFundoManeio.observacoes ? pagamentoParaFundoManeio.observacoes + " | " : ""}Pago com Fundo de Maneio em ${format(new Date(), "dd/MM/yyyy", { locale: pt })}`,
-      }
-
-      console.log("Atualizando pagamento:", pagamentoAtualizado)
-      updatePagamento(pagamentoParaFundoManeio.fornecedorId, pagamentoAtualizado)
-
-      setIsFundoManeioDialogOpen(false)
-      setPagamentoParaFundoManeio(null)
-      setDescricaoFundoManeio("")
-
-      toast({
-        title: "Pagamento realizado",
-        description: "O pagamento foi realizado com sucesso utilizando o fundo de maneio.",
-      })
-    } catch (error) {
-      console.error("Erro ao processar pagamento com fundo de maneio:", error)
-      toast({
-        title: "Erro",
-        description: "Ocorreu um erro ao processar o pagamento. Por favor, tente novamente.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  // Substitua a função handleExportPDF existente por esta implementação funcional:
-
-  const handleExportPDF = (pagamento: Pagamento) => {
-    try {
-      // Criar um elemento temporário para renderizar o conteúdo do PDF
-      const element = document.createElement("div")
-      element.innerHTML = `
-      <div style="padding: 20px; font-family: Arial, sans-serif;">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <h1 style="color: #333;">Comprovativo de Pagamento</h1>
-        </div>
-        <div style="border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 10px;">
-          <h2 style="color: #555;">Detalhes do Pagamento</h2>
-        </div>
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; width: 40%;"><strong>Referência:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.referencia}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fornecedor:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.fornecedorNome}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Valor:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Data de Vencimento:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Estado:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.estado.charAt(0).toUpperCase() + pagamento.estado.slice(1)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método de Pagamento:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.metodo}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Departamento:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.departamento || "N/A"}</td>
-          </tr>
-          ${
-            pagamento.dataPagamento
-              ? `
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Data de Pagamento:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${format(new Date(pagamento.dataPagamento), "dd/MM/yyyy", { locale: pt })}</td>
-          </tr>
-          `
-              : ""
-          }
-          ${
-            pagamento.observacoes
-              ? `
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Observações:</strong></td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${pagamento.observacoes}</td>
-          </tr>
-          `
-              : ""
-          }
-        </table>
-        <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #777;">
-          <p>Este documento foi gerado automaticamente pelo sistema de Tesouraria.</p>
-          <p>Data de emissão: ${format(new Date(), "dd/MM/yyyy HH:mm", { locale: pt })}</p>
-        </div>
-      </div>
-    `
-
-      // Usar a função de impressão do navegador para gerar um PDF
-      const printWindow = window.open("", "_blank")
-      if (printWindow) {
-        printWindow.document.write(`
-        <html>
-          <head>
-            <title>Comprovativo de Pagamento - ${pagamento.referencia}</title>
-            <style>
-              @media print {
-                body { margin: 0; padding: 0; }
-                @page { size: A4; margin: 1cm; }
-              }
-            </style>
-          </head>
-          <body>
-            ${element.innerHTML}
-            <script>
-              window.onload = function() {
-                window.print();
-                window.setTimeout(function() { window.close(); }, 500);
-              };
-            </script>
-          </body>
-        </html>
-      `)
-        printWindow.document.close()
-      } else {
-        toast({
-          title: "Erro",
-          description:
-            "Não foi possível abrir a janela de impressão. Verifique se o bloqueador de pop-ups está desativado.",
-          variant: "destructive",
-        })
-      }
-
-      toast({
-        title: "PDF gerado",
-        description: `O PDF do pagamento ${pagamento.referencia} foi gerado com sucesso.`,
-      })
-    } catch (error) {
-      console.error("Erro ao gerar PDF:", error)
-      toast({
-        title: "Erro ao gerar PDF",
-        description: "Ocorreu um erro ao gerar o PDF. Por favor, tente novamente.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  // Substitua a função handleExportExcel existente por esta implementação funcional:
-
-  const handleExportExcel = (pagamento: Pagamento) => {
-    try {
-      // Criar os dados para o CSV
-      const headers = [
-        "Referência",
-        "Fornecedor",
-        "Valor (MZN)",
-        "Data de Vencimento",
-        "Estado",
-        "Método de Pagamento",
-        "Departamento",
-        "Data de Pagamento",
-        "Observações",
-      ]
-
-      const data = [
-        pagamento.referencia,
-        pagamento.fornecedorNome,
-        pagamento.valor.toString(),
-        format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt }),
-        pagamento.estado,
-        pagamento.metodo,
-        pagamento.departamento || "",
-        pagamento.dataPagamento ? format(new Date(pagamento.dataPagamento), "dd/MM/yyyy", { locale: pt }) : "Não pago",
-        pagamento.observacoes || "",
-      ]
-
-      // Criar o conteúdo CSV
-      const csvContent = [
-        headers.join(","),
-        data.map((item) => `"${String(item).replace(/"/g, '""')}"`).join(","),
-      ].join("\n")
-
-      // Criar um Blob com o conteúdo CSV
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-      const url = URL.createObjectURL(blob)
-
-      // Criar um link para download
-      const link = document.createElement("a")
-      link.href = url
-      link.setAttribute("download", `pagamento_${pagamento.referencia.replace(/[^a-zA-Z0-9]/g, "_")}.csv`)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-
-      toast({
-        title: "Excel exportado",
-        description: `Os dados do pagamento ${pagamento.referencia} foram exportados para CSV com sucesso.`,
-      })
-    } catch (error) {
-      console.error("Erro ao exportar para Excel:", error)
-      toast({
-        title: "Erro na exportação",
-        description: "Ocorreu um erro ao exportar os dados. Por favor, tente novamente.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const getEstadoBadge = (estado: string) => {
-    switch (estado) {
-      case "pendente":
-        return (
-          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-            Pendente
-          </Badge>
-        )
-      case "pago":
-        return (
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-            Pago
-          </Badge>
-        )
-      case "atrasado":
-        return (
-          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-            Atrasado
-          </Badge>
-        )
-      case "cancelado":
-        return (
-          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
-            Cancelado
-          </Badge>
-        )
-      default:
-        return <Badge variant="outline">{estado}</Badge>
-    }
-  }
-
-  const getMetodoBadge = (metodo: string) => {
-    switch (metodo) {
-      case "fundo de maneio":
-        return (
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-            Fundo de Maneio
-          </Badge>
-        )
-      default:
-        return metodo
-    }
-  }
-
-  const handlePrint = () => {
-    window.print()
-  }
-
-  const handleMesAnterior = () => {
-    setMesSelecionado((mesAtual) => subMonths(mesAtual, 1))
-  }
-
-  const handleProximoMes = () => {
-    setMesSelecionado((mesAtual) => addMonths(mesAtual, 1))
-  }
-
-  const handleEmitirCheque = (pagamento: any) => {
-    setPagamentoParaCheque(pagamento)
-    setNovoCheque({
-      numero: "",
-      dataEmissao: new Date(),
-    })
-    setIsEmitirChequeDialogOpen(true)
-  }
-
-  const handleSalvarCheque = () => {
-    // Check if context functions are available
-    if (!updatePagamento) {
-      toast({
-        title: "Erro ao emitir cheque",
-        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!pagamentoParaCheque || !novoCheque.numero || !novoCheque.dataEmissao) {
-      toast({
-        title: "Erro",
-        description: "Por favor, preencha todos os campos obrigatórios.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    // Atualizar o pagamento para indicar que está sendo pago por cheque
-    updatePagamento(pagamentoParaCheque.fornecedorId, {
-      ...pagamentoParaCheque,
-      metodo: "cheque",
-      observacoes: `${pagamentoParaCheque.observacoes ? pagamentoParaCheque.observacoes + " | " : ""}Cheque nº ${novoCheque.numero} emitido em ${format(novoCheque.dataEmissao, "dd/MM/yyyy", { locale: pt })}`,
-    })
-
-    // Adicionar o cheque ao controle de cheques
-    const chequeToAdd = {
-      id: Date.now().toString(),
-      numero: novoCheque.numero,
-      valor: pagamentoParaCheque.valor,
-      beneficiario: pagamentoParaCheque.fornecedorNome,
-      dataEmissao: novoCheque.dataEmissao,
-      dataCompensacao: null,
-      estado: "pendente",
-      pagamentoId: pagamentoParaCheque.id,
-      pagamentoReferencia: pagamentoParaCheque.referencia,
-      fornecedorNome: pagamentoParaCheque.fornecedorNome,
-    }
-
-    // Carregar cheques existentes do localStorage
-    const chequesExistentes = JSON.parse(localStorage.getItem("cheques") || "[]")
-
-    // Adicionar o novo cheque
-    const chequeAtualizados = [...chequesExistentes, chequeToAdd]
-
-    // Salvar no localStorage
-    localStorage.setItem("cheques", JSON.stringify(chequeAtualizados))
-
-    // Fechar o diálogo
-    setIsEmitirChequeDialogOpen(false)
-    setPagamentoParaCheque(null)
-
-    toast({
-      title: "Cheque emitido",
-      description: "O cheque foi emitido e adicionado ao controle de cheques.",
-    })
-  }
-
-  // Modificar a função de marcar pagamento como pago para sincronizar com reconciliação bancária
-  // Procurar a função que marca pagamentos como pagos e modificá-la para:
-
-  const marcarComoPago = (pagamento: Pagamento, fornecedorId: string) => {
-    // Check if context functions are available
-    if (!updatePagamento) {
-      toast({
-        title: "Erro ao marcar como pago",
-        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const pagamentoAtualizado = {
-      ...pagamento,
-      estado: "pago",
-      dataPagamento: new Date(),
-    }
-
-    updatePagamento(fornecedorId, pagamentoAtualizado)
-
-    // Se o pagamento for por cheque ou transferência, adicionar à reconciliação bancária
-    if (pagamentoAtualizado.metodo === "cheque" || pagamentoAtualizado.metodo === "transferencia") {
-      adicionarTransacaoBancaria(pagamentoAtualizado, fornecedorId)
-    }
-
-    toast({
-      title: "Pagamento atualizado",
-      description: `O pagamento ${pagamento.referencia} foi marcado como pago.`,
-    })
-  }
-
-  // Adicionar função para criar uma transação bancária a partir de um pagamento
-  // Adicionar após a função marcarComoPago:
-
-  const adicionarTransacaoBancaria = (pagamento: Pagamento, fornecedorId: string) => {
-    const fornecedor = fornecedores.find((f) => f.id === fornecedorId)
-    if (!fornecedor) return
-
-    // Verificar se já existe uma transação para este pagamento
-    const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
-
-    let descricao = ""
-    const metodo = pagamento.metodo || "outro"
-    let chequeId = undefined
-    let chequeNumero = undefined
-
-    // Extrair número do cheque das observações, se for um pagamento por cheque
-    if (pagamento.metodo === "cheque" && pagamento.observacoes) {
-      const chequeMatch =
-        pagamento.observacoes.match(/cheque\s+n[º°]?\s*(\d+)/i) ||
-        pagamento.observacoes.match(/ch\s+n[º°]?\s*(\d+)/i) ||
-        pagamento.observacoes.match(/ch\s*(\d+)/i)
-
-      if (chequeMatch && chequeMatch[1]) {
-        chequeNumero = chequeMatch[1]
-
-        // Verificar se existe um cheque com este número
-        const chequesArmazenados = localStorage.getItem("cheques")
-        if (chequesArmazenados) {
-          try {
-            const chequesParsed = JSON.parse(chequesArmazenados)
-            const chequeEncontrado = chequesParsed.find((c: any) => c.numero === chequeNumero)
-
-            if (chequeEncontrado) {
-              chequeId = chequeEncontrado.id
-            }
-          } catch (error) {
-            console.error("Erro ao processar cheques:", error)
-          }
-        }
-      }
-
-      descricao = `Pagamento por cheque - ${fornecedor.nome} - ${pagamento.referencia}`
-    } else if (pagamento.metodo === "transferencia") {
-      descricao = `Transferência bancária - ${fornecedor.nome} - ${pagamento.referencia}`
-    } else {
-      descricao = `Pagamento - ${fornecedor.nome} - ${pagamento.referencia}`
-    }
-
-    const novaTransacao = {
-      id: `pag-${pagamento.id}`,
-      data: pagamento.dataPagamento || new Date(),
-      descricao: descricao,
-      valor: pagamento.valor,
-      tipo: "debito",
-      reconciliado: true,
-      pagamentoId: pagamento.id,
-      chequeId: chequeId,
-      chequeNumero: chequeNumero,
-      metodo: metodo,
-    }
-
-    if (transacoesArmazenadas) {
-      try {
-        const transacoesParsed = JSON.parse(transacoesArmazenadas)
-
-        // Verificar se já existe uma transação para este pagamento
-        const transacaoExistente = transacoesParsed.find((t: any) => t.pagamentoId === pagamento.id)
-
-        if (transacaoExistente) {
-          // Atualizar a transação existente
-          const transacoesAtualizadas = transacoesParsed.map((t: any) =>
-            t.pagamentoId === pagamento.id ? novaTransacao : t,
-          )
-          localStorage.setItem("transacoesBancarias", JSON.stringify(transacoesAtualizadas))
-        } else {
-          // Adicionar nova transação
-          const transacoesAtualizadas = [...transacoesParsed, novaTransacao]
-          localStorage.setItem("transacoesBancarias", JSON.stringify(transacoesAtualizadas))
-        }
-      } catch (error) {
-        console.error("Erro ao processar transações bancárias:", error)
-
-        // Se houver erro, criar nova lista
-        localStorage.setItem("transacoesBancarias", JSON.stringify([novaTransacao]))
-      }
-    } else {
-      // Não existe lista de transações, criar nova
-      localStorage.setItem("transacoesBancarias", JSON.stringify([novaTransacao]))
-    }
-  }
-
-  // Adicione esta função no componente PagamentosTable
   const handleInitiateWorkflow = (pagamento: any) => {
     // Check if context functions are available
     if (!initializeWorkflow) {
@@ -1627,67 +913,633 @@ export function PagamentosTable() {
     }
   }
 
-  // Agora, vamos adicionar os diálogos de redirecionamento
-  // Adicione este código antes do return final do componente (antes de "return (")
+  const [isTransferenciaDialogOpen, setIsTransferenciaDialogOpen] = useState(false)
+  const [pagamentoParaTransferencia, setPagamentoParaTransferencia] = useState<
+    (Pagamento & { fornecedorNome: string; fornecedorId: string }) | null
+  >(null)
+  const [detalhesTransferencia, setDetalhesTransferencia] = useState({
+    dataTransferencia: new Date(),
+    referencia: "",
+    observacoes: "",
+  })
 
-  // Efeito para abrir automaticamente o diálogo de cheque quando necessário
-  useEffect(() => {
-    if (redirectToChecks && novoPagamentoAdicionado) {
-      // Configurar o pagamento para cheque
-      const pagamentoParaChequeObj = {
-        ...todosOsPagamentos.find((p) => p.id === novoPagamentoAdicionado.id),
-        fornecedorId: novoPagamentoAdicionado.fornecedorId,
-        fornecedorNome: novoPagamentoAdicionado.fornecedorNome,
-      }
+  const handleTransferenciaBancaria = () => {
+    console.log("Iniciando transferência bancária...")
 
-      if (pagamentoParaChequeObj) {
-        setPagamentoParaCheque(pagamentoParaChequeObj)
-        setNovoCheque({
-          numero: "",
-          dataEmissao: new Date(),
-        })
-        setIsEmitirChequeDialogOpen(true)
-
-        // Resetar o estado de redirecionamento
-        setRedirectToChecks(false)
-        setNovoPagamentoAdicionado(null)
-      }
+    // Check if context functions are available
+    if (!updatePagamento) {
+      console.error("Função updatePagamento não disponível")
+      toast({
+        title: "Erro ao processar transferência",
+        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
+        variant: "destructive",
+      })
+      return
     }
-  }, [redirectToChecks, novoPagamentoAdicionado, todosOsPagamentos])
 
-  // Efeito para abrir automaticamente o diálogo de fundo de maneio quando necessário
-  useEffect(() => {
-    if (redirectToFundoManeio && novoPagamentoAdicionado) {
-      // Configurar o pagamento para fundo de maneio
-      const pagamentoParaFundoObj = {
-        ...todosOsPagamentos.find((p) => p.id === novoPagamentoAdicionado.id),
-        fornecedorId: novoPagamentoAdicionado.fornecedorId,
-        fornecedorNome: novoPagamentoAdicionado.fornecedorNome,
-      }
-
-      if (pagamentoParaFundoObj) {
-        setPagamentoParaFundoManeio(pagamentoParaFundoObj)
-        setDescricaoFundoManeio(
-          `Pagamento a ${pagamentoParaFundoObj.fornecedorNome} - Ref: ${pagamentoParaFundoObj.referencia}`,
-        )
-        setIsFundoManeioDialogOpen(true)
-
-        // Resetar o estado de redirecionamento
-        setRedirectToFundoManeio(false)
-        setNovoPagamentoAdicionado(null)
-      }
+    if (!pagamentoParaTransferencia) {
+      console.error("Pagamento para transferência não selecionado")
+      toast({
+        title: "Erro",
+        description: "Pagamento não selecionado.",
+        variant: "destructive",
+      })
+      return
     }
-  }, [redirectToFundoManeio, novoPagamentoAdicionado, todosOsPagamentos])
 
-  if (isLoading) {
-    return (
-      <PrintLayout title="Relatório de Pagamentos">
-        <div className="flex items-center justify-center h-64">
-          <p className="text-lg text-gray-500">Carregando pagamentos...</p>
-        </div>
-      </PrintLayout>
-    )
+    try {
+      // Atualizar o pagamento
+      const pagamentoAtualizado = {
+        ...pagamentoParaTransferencia,
+        estado: "pago",
+        dataPagamento: detalhesTransferencia.dataTransferencia,
+        metodo: "transferência",
+        observacoes: `${pagamentoParaTransferencia.observacoes ? pagamentoParaTransferencia.observacoes + " | " : ""}Transferência bancária realizada em ${format(detalhesTransferencia.dataTransferencia, "dd/MM/yyyy", { locale: pt })}${detalhesTransferencia.referencia ? ` | Ref: ${detalhesTransferencia.referencia}` : ""}${detalhesTransferencia.observacoes ? ` | ${detalhesTransferencia.observacoes}` : ""}`,
+      }
+
+      console.log("Atualizando pagamento:", pagamentoAtualizado)
+      updatePagamento(pagamentoParaTransferencia.fornecedorId, pagamentoAtualizado)
+
+      // Adicionar à reconciliação bancária
+      const transacao = {
+        id: `trans-${Date.now()}`,
+        data: detalhesTransferencia.dataTransferencia,
+        descricao: `Transferência bancária - ${pagamentoParaTransferencia.fornecedorNome} - ${pagamentoParaTransferencia.referencia}`,
+        valor: pagamentoParaTransferencia.valor,
+        tipo: "debito",
+        reconciliado: false,
+        pagamentoId: pagamentoParaTransferencia.id,
+        metodo: "transferencia",
+        origem: "manual",
+        observacoes: detalhesTransferencia.observacoes || "Transferência bancária",
+        referencia: detalhesTransferencia.referencia || pagamentoParaTransferencia.referencia,
+      }
+
+      // Carregar transações existentes
+      const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
+      let transacoes = []
+
+      if (transacoesArmazenadas) {
+        try {
+          transacoes = JSON.parse(transacoesArmazenadas)
+        } catch (error) {
+          console.error("Erro ao carregar transações bancárias:", error)
+          transacoes = []
+        }
+      }
+
+      // Adicionar a nova transação
+      transacoes.push(transacao)
+
+      // Salvar no localStorage
+      localStorage.setItem("transacoesBancarias", JSON.stringify(transacoes))
+
+      setIsTransferenciaDialogOpen(false)
+      setPagamentoParaTransferencia(null)
+      setDetalhesTransferencia({
+        dataTransferencia: new Date(),
+        referencia: "",
+        observacoes: "",
+      })
+
+      toast({
+        title: "Transferência realizada",
+        description: "A transferência bancária foi registrada e o pagamento foi atualizado.",
+      })
+    } catch (error) {
+      console.error("Erro ao processar transferência bancária:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao processar a transferência. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
   }
+
+  const handlePrint = () => {
+    window.print()
+  }
+
+  const handleMesAnterior = () => {
+    setMesSelecionado(subMonths(mesSelecionado, 1))
+  }
+
+  const handleProximoMes = () => {
+    setMesSelecionado(addMonths(mesSelecionado, 1))
+  }
+
+  // Modifique a função getEstadoBadge para incluir o estado "parcialmente pago"
+  const getEstadoBadge = (estado: string, valorPago?: number, valorTotal?: number) => {
+    switch (estado) {
+      case "pendente":
+        return (
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+            Pendente
+          </Badge>
+        )
+      case "pago":
+        return (
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            Pago
+          </Badge>
+        )
+      case "parcialmente pago":
+        const percentPago = valorPago && valorTotal ? Math.round((valorPago / valorTotal) * 100) : 0
+        return (
+          <div className="flex flex-col gap-1">
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+              Parcial ({percentPago}%)
+            </Badge>
+            <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${percentPago}%` }}></div>
+            </div>
+          </div>
+        )
+      case "atrasado":
+        return (
+          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+            Atrasado
+          </Badge>
+        )
+      case "cancelado":
+        return (
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+            Cancelado
+          </Badge>
+        )
+      default:
+        return <Badge variant="outline">{estado}</Badge>
+    }
+  }
+
+  const getMetodoBadge = (metodo: string) => {
+    switch (metodo) {
+      case "transferência":
+        return (
+          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+            Transferência
+          </Badge>
+        )
+      case "cheque":
+        return (
+          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+            Cheque
+          </Badge>
+        )
+      case "débito direto":
+        return (
+          <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+            Débito Direto
+          </Badge>
+        )
+      case "fundo de maneio":
+        return (
+          <Badge variant="outline" className="bg-teal-50 text-teal-700 border-teal-200">
+            Fundo de Maneio
+          </Badge>
+        )
+      case "outro":
+        return (
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+            Outro
+          </Badge>
+        )
+      default:
+        return <Badge variant="outline">{metodo}</Badge>
+    }
+  }
+
+  const handleExportPDF = (pagamento: any) => {
+    toast({
+      title: "Exportar PDF",
+      description: "Funcionalidade em desenvolvimento.",
+    })
+  }
+
+  const handleExportExcel = (pagamento: any) => {
+    toast({
+      title: "Exportar Excel",
+      description: "Funcionalidade em desenvolvimento.",
+    })
+  }
+
+  const marcarComoPago = (pagamento: any, fornecedorId: string) => {
+    // Check if context functions are available
+    if (!updatePagamento) {
+      toast({
+        title: "Erro ao marcar como pago",
+        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const dataPagamento = new Date()
+
+    const pagamentoAtualizado = {
+      ...pagamento,
+      estado: "pago",
+      dataPagamento: dataPagamento,
+      historico: [
+        ...(pagamento.historico || []),
+        {
+          id: uuidv4(),
+          timestamp: new Date(),
+          username: user?.username || "sistema",
+          action: "update",
+          details: `Pagamento marcado como pago por ${user?.username || "sistema"}`,
+        },
+      ],
+    }
+
+    updatePagamento(fornecedorId, pagamentoAtualizado)
+    toast({
+      title: "Pagamento atualizado",
+      description: "O pagamento foi marcado como pago.",
+    })
+  }
+
+  const handleEmitirCheque = (pagamento: any) => {
+    setPagamentoParaCheque(pagamento)
+    setIsEmitirChequeDialogOpen(true)
+  }
+
+  const handlePagarComFundoManeio = async () => {
+    // Check if context functions are available
+    if (!updatePagamento) {
+      toast({
+        title: "Erro ao pagar com fundo de maneio",
+        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!pagamentoParaFundoManeio) {
+      toast({
+        title: "Erro",
+        description: "Pagamento não selecionado.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      // Criar um movimento no fundo de maneio
+      const descricao =
+        descricaoFundoManeio ||
+        `Pagamento a ${pagamentoParaFundoManeio.fornecedorNome} - Ref: ${pagamentoParaFundoManeio.referencia}`
+
+      // Verificar se a função existe antes de chamar
+      if (fundoManeioRef.current && typeof fundoManeioRef.current.adicionarMovimentoFundoManeio === "function") {
+        const movimentoId = fundoManeioRef.current.adicionarMovimentoFundoManeio({
+          data: new Date(),
+          tipo: "saida",
+          valor: pagamentoParaFundoManeio.valor,
+          descricao: descricao,
+          pagamentoId: pagamentoParaFundoManeio.id,
+          pagamentoReferencia: pagamentoParaFundoManeio.referencia,
+          fornecedorNome: pagamentoParaFundoManeio.fornecedorNome,
+        })
+
+        if (movimentoId) {
+          // Atualizar o pagamento com a referência ao movimento do fundo de maneio
+          const pagamentoAtualizado = {
+            ...pagamentoParaFundoManeio,
+            estado: "pago",
+            dataPagamento: new Date(),
+            metodo: "fundo de maneio",
+            fundoManeioId: movimentoId,
+            historico: [
+              ...(pagamentoParaFundoManeio.historico || []),
+              {
+                id: uuidv4(),
+                timestamp: new Date(),
+                username: user?.username || "sistema",
+                action: "update",
+                details: `Pagamento realizado com fundo de maneio por ${user?.username || "sistema"}`,
+              },
+            ],
+          }
+
+          updatePagamento(pagamentoParaFundoManeio.fornecedorId, pagamentoAtualizado)
+
+          setIsFundoManeioDialogOpen(false)
+          setPagamentoParaFundoManeio(null)
+          setDescricaoFundoManeio("")
+
+          toast({
+            title: "Pagamento realizado",
+            description: "O pagamento foi realizado com sucesso utilizando o fundo de maneio.",
+          })
+        } else {
+          toast({
+            title: "Aviso",
+            description: "Não foi possível adicionar o movimento ao fundo de maneio. Verifique se há saldo suficiente.",
+            variant: "warning",
+          })
+        }
+      } else {
+        console.warn("Função adicionarMovimentoFundoManeio não está disponível")
+      }
+    } catch (error) {
+      console.error("Erro ao pagar com fundo de maneio:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao realizar o pagamento. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleSalvarCheque = () => {
+    // Check if context functions are available
+    if (!updatePagamento) {
+      toast({
+        title: "Erro ao emitir cheque",
+        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!pagamentoParaCheque) {
+      toast({
+        title: "Erro",
+        description: "Pagamento não selecionado.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!novoCheque.numero || !novoCheque.dataEmissao) {
+      toast({
+        title: "Erro",
+        description: "Por favor, preencha todos os detalhes do cheque.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      // Adicionar o cheque
+      const chequeId = adicionarCheque({
+        numero: novoCheque.numero,
+        dataEmissao: novoCheque.dataEmissao,
+        valor: pagamentoParaCheque.valor,
+        beneficiario: pagamentoParaCheque.fornecedorNome,
+        pagamentoId: pagamentoParaCheque.id,
+        observacoes: `Cheque emitido para pagamento da referência ${pagamentoParaCheque.referencia}`,
+      })
+
+      if (chequeId) {
+        // Atualizar o pagamento com a referência ao cheque
+        const pagamentoAtualizado = {
+          ...pagamentoParaCheque,
+          chequeId: chequeId,
+          historico: [
+            ...(pagamentoParaCheque.historico || []),
+            {
+              id: uuidv4(),
+              timestamp: new Date(),
+              username: user?.username || "sistema",
+              action: "update",
+              details: `Cheque emitido por ${user?.username || "sistema"}`,
+            },
+          ],
+        }
+
+        updatePagamento(pagamentoParaCheque.fornecedorId, pagamentoAtualizado)
+
+        setIsEmitirChequeDialogOpen(false)
+        setPagamentoParaCheque(null)
+        setNovoCheque({ numero: "", dataEmissao: new Date() })
+
+        toast({
+          title: "Cheque emitido",
+          description: "O cheque foi emitido e associado ao pagamento.",
+        })
+      } else {
+        toast({
+          title: "Erro",
+          description: "Não foi possível emitir o cheque. Por favor, tente novamente.",
+        })
+      }
+    } catch (error) {
+      console.error("Erro ao emitir cheque:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao emitir o cheque. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDeletePagamento = (fornecedorId: string, pagamentoId: string) => {
+    // Check if context functions are available
+    if (!deletePagamento) {
+      toast({
+        title: "Erro ao eliminar pagamento",
+        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      deletePagamento(fornecedorId, pagamentoId)
+      toast({
+        title: "Pagamento eliminado",
+        description: "O pagamento foi eliminado com sucesso.",
+      })
+    } catch (error) {
+      console.error("Erro ao eliminar pagamento:", error)
+      toast({
+        title: "Erro ao eliminar pagamento",
+        description: "Ocorreu um erro ao eliminar o pagamento. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Adicione estes estados no componente PagamentosTable
+  const [isPagamentoParcialDialogOpen, setIsPagamentoParcialDialogOpen] = useState(false)
+  const [pagamentoParaPagamentoParcial, setPagamentoParaPagamentoParcial] = useState<
+    (Pagamento & { fornecedorNome: string; fornecedorId: string }) | null
+  >(null)
+  const [detalhesPagamentoParcial, setDetalhesPagamentoParcial] = useState({
+    valor: 0,
+    dataPagamento: new Date(),
+    metodo: "transferência" as "transferência" | "cheque" | "débito direto" | "fundo de maneio" | "outro",
+    referencia: "",
+    observacoes: "",
+  })
+
+  // Adicione esta função para processar pagamentos parciais
+  const handlePagamentoParcial = () => {
+    console.log("Processando pagamento parcial...")
+
+    // Check if context functions are available
+    if (!updatePagamento) {
+      console.error("Função updatePagamento não disponível")
+      toast({
+        title: "Erro ao processar pagamento parcial",
+        description: "Serviço indisponível. Por favor, tente novamente mais tarde.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!pagamentoParaPagamentoParcial) {
+      console.error("Pagamento para pagamento parcial não selecionado")
+      toast({
+        title: "Erro",
+        description: "Pagamento não selecionado.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validar valor do pagamento parcial
+    if (!detalhesPagamentoParcial.valor || detalhesPagamentoParcial.valor <= 0) {
+      toast({
+        title: "Erro",
+        description: "O valor do pagamento parcial deve ser maior que zero.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Verificar se o valor do pagamento parcial não excede o valor restante
+    const pagamentosParciais = pagamentoParaPagamentoParcial.pagamentosParciais || []
+    const valorJaPago = pagamentosParciais.reduce((total, p) => total + p.valor, 0)
+    const valorRestante = pagamentoParaPagamentoParcial.valor - valorJaPago
+
+    if (detalhesPagamentoParcial.valor > valorRestante) {
+      toast({
+        title: "Erro",
+        description: `O valor do pagamento parcial não pode exceder o valor restante (${valorRestante.toFixed(2)} MZN).`,
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      // Criar um novo pagamento parcial
+      const pagamentoParcial = {
+        id: uuidv4(),
+        dataPagamento: detalhesPagamentoParcial.dataPagamento,
+        valor: detalhesPagamentoParcial.valor,
+        metodo: detalhesPagamentoParcial.metodo,
+        referencia: detalhesPagamentoParcial.referencia,
+        observacoes: detalhesPagamentoParcial.observacoes,
+        usuario: user?.username || "sistema",
+      }
+
+      // Atualizar o pagamento com o novo pagamento parcial
+      const novoValorPago = valorJaPago + detalhesPagamentoParcial.valor
+      const novoValorRestante = pagamentoParaPagamentoParcial.valor - novoValorPago
+
+      // Determinar o novo estado do pagamento
+      let novoEstado = pagamentoParaPagamentoParcial.estado
+      if (novoValorRestante <= 0) {
+        novoEstado = "pago"
+      } else if (novoValorPago > 0) {
+        novoEstado = "parcialmente pago"
+      }
+
+      const pagamentoAtualizado = {
+        ...pagamentoParaPagamentoParcial,
+        valorPago: novoValorPago,
+        valorPendente: novoValorRestante,
+        estado: novoEstado,
+        dataPagamento: novoValorRestante <= 0 ? detalhesPagamentoParcial.dataPagamento : null,
+        pagamentosParciais: [...(pagamentoParaPagamentoParcial.pagamentosParciais || []), pagamentoParcial],
+        historico: [
+          ...(pagamentoParaPagamentoParcial.historico || []),
+          {
+            id: uuidv4(),
+            timestamp: new Date(),
+            username: user?.username || "sistema",
+            action: "update",
+            details: `Pagamento parcial de ${detalhesPagamentoParcial.valor.toFixed(2)} MZN realizado por ${user?.username || "sistema"}`,
+          },
+        ],
+      }
+
+      // Atualizar o pagamento
+      updatePagamento(pagamentoParaPagamentoParcial.fornecedorId, pagamentoAtualizado)
+
+      // Adicionar à reconciliação bancária se for transferência ou cheque
+      if (detalhesPagamentoParcial.metodo === "transferência" || detalhesPagamentoParcial.metodo === "cheque") {
+        const transacao = {
+          id: `trans-parcial-${Date.now()}`,
+          data: detalhesPagamentoParcial.dataPagamento,
+          descricao: `Pagamento parcial (${detalhesPagamentoParcial.metodo}) - ${pagamentoParaPagamentoParcial.fornecedorNome} - ${pagamentoParaPagamentoParcial.referencia}`,
+          valor: detalhesPagamentoParcial.valor,
+          tipo: "debito",
+          reconciliado: false,
+          pagamentoId: pagamentoParaPagamentoParcial.id,
+          metodo: detalhesPagamentoParcial.metodo === "transferência" ? "transferencia" : "cheque",
+          origem: "manual",
+          observacoes:
+            detalhesPagamentoParcial.observacoes || `Pagamento parcial via ${detalhesPagamentoParcial.metodo}`,
+          referencia: detalhesPagamentoParcial.referencia || pagamentoParaPagamentoParcial.referencia,
+        }
+
+        // Carregar transações existentes
+        const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
+        let transacoes = []
+
+        if (transacoesArmazenadas) {
+          try {
+            transacoes = JSON.parse(transacoesArmazenadas)
+          } catch (error) {
+            console.error("Erro ao carregar transações bancárias:", error)
+            transacoes = []
+          }
+        }
+
+        // Adicionar a nova transação
+        transacoes.push(transacao)
+
+        // Salvar no localStorage
+        localStorage.setItem("transacoesBancarias", JSON.stringify(transacoes))
+      }
+
+      // Fechar o diálogo e limpar os estados
+      setIsPagamentoParcialDialogOpen(false)
+      setPagamentoParaPagamentoParcial(null)
+      setDetalhesPagamentoParcial({
+        valor: 0,
+        dataPagamento: new Date(),
+        metodo: "transferência",
+        referencia: "",
+        observacoes: "",
+      })
+
+      toast({
+        title: "Pagamento parcial realizado",
+        description: `Pagamento parcial de ${detalhesPagamentoParcial.valor.toFixed(2)} MZN realizado com sucesso.`,
+      })
+    } catch (error) {
+      console.error("Erro ao processar pagamento parcial:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao processar o pagamento parcial. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Adicione este diálogo no final do componente, antes do return final
+  // Coloque-o junto com os outros diálogos
+
+  // Adicione estes estados no componente PagamentosTable
+  const [isOpcoesPagamentoDialogOpen, setOpcoesPagamentoDialogOpen] = useState(false)
+  const [pagamentoParaOpcoesPagamento, setPagamentoParaOpcoesPagamento] = useState<
+    (Pagamento & { fornecedorNome: string; fornecedorId: string }) | null
+  >(null)
 
   return (
     <PrintLayout title="Relatório de Pagamentos">
@@ -1916,9 +1768,12 @@ export function PagamentosTable() {
                     <TableRow key={pagamento.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                       <TableCell className="font-medium">{pagamento.referencia}</TableCell>
                       <TableCell>{pagamento.fornecedorNome}</TableCell>
-                      <TableCell className="text-right">{pagamento.valor.toFixed(2)} MZN</TableCell>
+                      <TableCell className="text-right">
+                        {pagamento.valor ? pagamento.valor.toFixed(2) : "0,00"} MZN
+                      </TableCell>
                       <TableCell>{format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}</TableCell>
-                      <TableCell>{getEstadoBadge(pagamento.estado)}</TableCell>
+                      {/* Modifique a célula da tabela que mostra o estado para incluir os valores pagos e totais */}
+                      <TableCell>{getEstadoBadge(pagamento.estado, pagamento.valorPago, pagamento.valor)}</TableCell>
                       <TableCell>{getMetodoBadge(pagamento.metodo)}</TableCell>
                       {showWorkflowColumn && (
                         <TableCell>
@@ -1942,6 +1797,7 @@ export function PagamentosTable() {
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
+
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Ações</DropdownMenuLabel>
                             <DropdownMenuSeparator />
@@ -1961,35 +1817,19 @@ export function PagamentosTable() {
                               Editar
                             </DropdownMenuItem>
 
-                            {/* Submenu de Pagamento */}
-                            {(pagamento.estado === "pendente" || pagamento.estado === "atrasado") && (
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <CreditCard className="mr-2 h-4 w-4" />
-                                  Opções de Pagamento
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  {user?.role === "admin" && (
-                                    <DropdownMenuItem onClick={() => marcarComoPago(pagamento, pagamento.fornecedorId)}>
-                                      <Check className="mr-2 h-4 w-4" />
-                                      Marcar como pago
-                                    </DropdownMenuItem>
-                                  )}
-                                  <DropdownMenuItem onClick={() => handleEmitirCheque(pagamento)}>
-                                    <CreditCard className="mr-2 h-4 w-4" />
-                                    Emitir Cheque
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      setPagamentoParaFundoManeio(pagamento)
-                                      setIsFundoManeioDialogOpen(true)
-                                    }}
-                                  >
-                                    <Wallet className="mr-2 h-4 w-4" />
-                                    Pagar com Fundo de Maneio
-                                  </DropdownMenuItem>
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
+                            {/* Opções de Pagamento Agrupadas */}
+                            {(pagamento.estado === "pendente" ||
+                              pagamento.estado === "atrasado" ||
+                              pagamento.estado === "parcialmente pago") && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setOpcoesPagamentoDialogOpen(true)
+                                  setPagamentoParaOpcoesPagamento(pagamento)
+                                }}
+                              >
+                                <CreditCard className="mr-2 h-4 w-4" />
+                                Opções de Pagamento
+                              </DropdownMenuItem>
                             )}
 
                             {/* Submenu de Documentos */}
@@ -2249,7 +2089,9 @@ export function PagamentosTable() {
                   <p className="text-sm text-gray-500">Fornecedor: {pagamentoParaFundoManeio?.fornecedorNome}</p>
                   <p className="text-sm text-gray-500">
                     Valor:{" "}
-                    {pagamentoParaFundoManeio?.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}
+                    {pagamentoParaFundoManeio?.valor
+                      ? pagamentoParaFundoManeio.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })
+                      : "0,00 MZN"}
                   </p>
                 </div>
               </div>
@@ -2306,7 +2148,9 @@ export function PagamentosTable() {
                     <p className="font-medium">{pagamentoParaCheque.referencia}</p>
                     <p className="text-sm text-gray-500">{pagamentoParaCheque.fornecedorNome}</p>
                     <p className="text-sm text-gray-500">
-                      {pagamentoParaCheque.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}
+                      {pagamentoParaCheque?.valor
+                        ? pagamentoParaCheque.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })
+                        : "0,00 MZN"}
                     </p>
                   </div>
                 </div>
@@ -2367,6 +2211,234 @@ export function PagamentosTable() {
             }}
           />
         )}
+        <Dialog open={isPagamentoParcialDialogOpen} onOpenChange={setIsPagamentoParcialDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="text-xl">Pagamento Parcial</DialogTitle>
+              <DialogDescription>
+                Realize um pagamento parcial para {pagamentoParaPagamentoParcial?.referencia}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-2">
+              <div className="flex justify-between items-center bg-gray-50 p-3 rounded-md">
+                <div>
+                  <p className="font-medium">{pagamentoParaPagamentoParcial?.fornecedorNome}</p>
+                  <p className="text-sm text-gray-500">
+                    Valor pendente:{" "}
+                    {pagamentoParaPagamentoParcial
+                      ? (
+                          pagamentoParaPagamentoParcial.valor - (pagamentoParaPagamentoParcial.valorPago || 0)
+                        ).toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })
+                      : "0,00 MZN"}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="valor-parcial" className="text-sm font-medium mb-1 block">
+                  Valor a pagar
+                </Label>
+                <Input
+                  id="valor-parcial"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={
+                    pagamentoParaPagamentoParcial
+                      ? pagamentoParaPagamentoParcial.valor - (pagamentoParaPagamentoParcial.valorPago || 0)
+                      : 0
+                  }
+                  value={detalhesPagamentoParcial.valor}
+                  onChange={(e) =>
+                    setDetalhesPagamentoParcial({
+                      ...detalhesPagamentoParcial,
+                      valor: Number.parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  className="w-full"
+                  placeholder="Valor a ser pago"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="metodo-pagamento-parcial" className="text-sm font-medium mb-1 block">
+                    Método
+                  </Label>
+                  <Select
+                    value={detalhesPagamentoParcial.metodo}
+                    onValueChange={(value) =>
+                      setDetalhesPagamentoParcial({
+                        ...detalhesPagamentoParcial,
+                        metodo: value as any,
+                      })
+                    }
+                  >
+                    <SelectTrigger id="metodo-pagamento-parcial">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="transferência">Transferência</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="débito direto">Débito Direto</SelectItem>
+                      <SelectItem value="fundo de maneio">Fundo de Maneio</SelectItem>
+                      <SelectItem value="outro">Outro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="data-pagamento-parcial" className="text-sm font-medium mb-1 block">
+                    Data
+                  </Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal">
+                        {format(detalhesPagamentoParcial.dataPagamento, "dd/MM/yyyy", { locale: pt })}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={detalhesPagamentoParcial.dataPagamento}
+                        onSelect={(date) =>
+                          setDetalhesPagamentoParcial({
+                            ...detalhesPagamentoParcial,
+                            dataPagamento: date || new Date(),
+                          })
+                        }
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="referencia-pagamento-parcial" className="text-sm font-medium mb-1 block">
+                  Referência
+                </Label>
+                <Input
+                  id="referencia-pagamento-parcial"
+                  value={detalhesPagamentoParcial.referencia}
+                  onChange={(e) =>
+                    setDetalhesPagamentoParcial({
+                      ...detalhesPagamentoParcial,
+                      referencia: e.target.value,
+                    })
+                  }
+                  className="w-full"
+                  placeholder="Referência do pagamento"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="observacoes-pagamento-parcial" className="text-sm font-medium mb-1 block">
+                  Observações
+                </Label>
+                <Textarea
+                  id="observacoes-pagamento-parcial"
+                  value={detalhesPagamentoParcial.observacoes}
+                  onChange={(e) =>
+                    setDetalhesPagamentoParcial({
+                      ...detalhesPagamentoParcial,
+                      observacoes: e.target.value,
+                    })
+                  }
+                  className="w-full"
+                  placeholder="Observações sobre o pagamento"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <DialogFooter className="mt-2">
+              <Button variant="outline" onClick={() => setIsPagamentoParcialDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handlePagamentoParcial} className="bg-red-600 hover:bg-red-700">
+                Confirmar Pagamento
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={isOpcoesPagamentoDialogOpen} onOpenChange={setOpcoesPagamentoDialogOpen}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Opções de Pagamento</DialogTitle>
+              <DialogDescription>Selecione uma opção para realizar o pagamento.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              {user?.role === "admin" && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    marcarComoPago(pagamentoParaOpcoesPagamento, pagamentoParaOpcoesPagamento.fornecedorId)
+                    setOpcoesPagamentoDialogOpen(false)
+                  }}
+                >
+                  Marcar como Pago
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  handleEmitirCheque(pagamentoParaOpcoesPagamento)
+                  setOpcoesPagamentoDialogOpen(false)
+                }}
+              >
+                Emitir Cheque
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPagamentoParaTransferencia(pagamentoParaOpcoesPagamento)
+                  setDetalhesTransferencia({
+                    dataTransferencia: new Date(),
+                    referencia: "",
+                    observacoes: "",
+                  })
+                  setIsTransferenciaDialogOpen(true)
+                  setOpcoesPagamentoDialogOpen(false)
+                }}
+              >
+                Transferência Bancária
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPagamentoParaPagamentoParcial(pagamentoParaOpcoesPagamento)
+                  setDetalhesPagamentoParcial({
+                    valor: 0,
+                    dataPagamento: new Date(),
+                    metodo: "transferência",
+                    referencia: "",
+                    observacoes: "",
+                  })
+                  setIsPagamentoParcialDialogOpen(true)
+                  setOpcoesPagamentoDialogOpen(false)
+                }}
+              >
+                Pagamento Parcial
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPagamentoParaFundoManeio(pagamentoParaOpcoesPagamento)
+                  setIsFundoManeioDialogOpen(true)
+                  setOpcoesPagamentoDialogOpen(false)
+                }}
+              >
+                Pagar com Fundo de Maneio
+              </Button>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpcoesPagamentoDialogOpen(false)}>
+                Cancelar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </PrintLayout>
   )

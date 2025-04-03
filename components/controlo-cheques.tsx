@@ -1,13 +1,15 @@
 "use client"
 
+import { Calendar } from "@/components/ui/calendar"
+
 import { useState, useEffect } from "react"
 import { format } from "date-fns"
 import { pt } from "date-fns/locale"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Check, FileSpreadsheet, Filter, Plus, Printer, Search, X } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
   DialogContent,
@@ -15,460 +17,434 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
+import { Badge } from "@/components/ui/badge"
 import { toast } from "@/components/ui/use-toast"
 import { PrintLayout } from "@/components/print-layout"
-import { Trash2, Printer, FileDown } from "lucide-react"
-import jsPDF from "jspdf"
-import "jspdf-autotable"
-import * as XLSX from "xlsx"
-import { useAppContext } from "@/contexts/AppContext"
+import { CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 
-// Modificar o tipo Cheque para incluir referência ao pagamento
-type Cheque = {
+interface Cheque {
   id: string
   numero: string
   valor: number
   beneficiario: string
   dataEmissao: Date
   dataCompensacao: Date | null
-  estado: "pendente" | "compensado" | "cancelado"
+  estado: "pendente" | "emitido" | "compensado" | "cancelado"
   pagamentoId?: string
   pagamentoReferencia?: string
   fornecedorNome?: string
+  banco?: string
 }
 
-// Modificar o componente ControloCheques para incluir a integração com pagamentos
-// Primeiro, vamos exportar a função handleAddCheque para que ela possa ser chamada externamente
-
-// Modifique a função handleAddCheque para exportá-la
 export function ControloCheques() {
-  const { fornecedores, atualizarPagamento } = useAppContext()
-  // Modificar o componente ControloCheques para carregar cheques do localStorage
-  // Substitua a declaração do estado cheques com esta versão:
-
   const [cheques, setCheques] = useState<Cheque[]>([])
+  const [filteredCheques, setFilteredCheques] = useState<Cheque[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isCompensarDialogOpen, setIsCompensarDialogOpen] = useState(false)
+  const [chequeSelecionado, setChequeSelecionado] = useState<Cheque | null>(null)
+  const [dataCompensacao, setDataCompensacao] = useState<Date | undefined>(new Date())
+  const [novoCheque, setNovoCheque] = useState<{
+    numero: string
+    valor: number
+    beneficiario: string
+    dataEmissao: Date | undefined
+    banco: string
+  }>({
+    numero: "",
+    valor: 0,
+    beneficiario: "",
+    dataEmissao: new Date(),
+    banco: "BIM",
+  })
+  const [filtroEstado, setFiltroEstado] = useState<string>("todos")
 
-  // Adicionar um useEffect para carregar os cheques do localStorage
-  // Adicione este useEffect logo após a declaração do estado:
-
+  // Carregar cheques do localStorage
   useEffect(() => {
-    // Carregar cheques do localStorage
-    const chequesArmazenados = localStorage.getItem("cheques")
-    if (chequesArmazenados) {
-      try {
+    try {
+      const chequesArmazenados = localStorage.getItem("cheques")
+      if (chequesArmazenados) {
         const chequesParsed = JSON.parse(chequesArmazenados)
-        // Converter as datas de string para objeto Date
-        const chequesFormatados = chequesParsed.map((cheque: any) => ({
+        // Garantir que todos os cheques tenham um valor válido
+        const chequesValidados = chequesParsed.map((cheque: any) => ({
           ...cheque,
-          dataEmissao: new Date(cheque.dataEmissao),
+          valor: cheque.valor || 0, // Garantir que valor nunca seja undefined
+          dataEmissao: cheque.dataEmissao ? new Date(cheque.dataEmissao) : new Date(),
           dataCompensacao: cheque.dataCompensacao ? new Date(cheque.dataCompensacao) : null,
+          // Mapear estado "emitido" para "pendente" para compatibilidade
+          estado: cheque.estado === "emitido" ? "pendente" : cheque.estado,
         }))
-        setCheques(chequesFormatados)
-      } catch (error) {
-        console.error("Erro ao carregar cheques:", error)
-        setCheques([])
+        setCheques(chequesValidados)
       }
+    } catch (error) {
+      console.error("Erro ao carregar cheques:", error)
+      setCheques([])
     }
   }, [])
 
-  // Obter todos os pagamentos pendentes que podem ser associados a cheques
-  const pagamentosPendentes = fornecedores.flatMap((fornecedor) =>
-    fornecedor.pagamentos
-      .filter((pagamento) => pagamento.estado === "pendente" || pagamento.estado === "atrasado")
-      .map((pagamento) => ({
-        ...pagamento,
-        fornecedorId: fornecedor.id,
-        fornecedorNome: fornecedor.nome,
-      })),
-  )
+  // Filtrar cheques com base no termo de pesquisa e filtro de estado
+  useEffect(() => {
+    let filtered = [...cheques]
 
+    // Aplicar filtro de estado
+    if (filtroEstado !== "todos") {
+      filtered = filtered.filter((cheque) => cheque.estado === filtroEstado)
+    }
+
+    // Aplicar termo de pesquisa
+    if (searchTerm) {
+      filtered = filtered.filter(
+        (cheque) =>
+          cheque.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          cheque.beneficiario.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (cheque.fornecedorNome && cheque.fornecedorNome.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (cheque.pagamentoReferencia && cheque.pagamentoReferencia.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (cheque.banco && cheque.banco.toLowerCase().includes(searchTerm.toLowerCase())),
+      )
+    }
+
+    setFilteredCheques(filtered)
+  }, [cheques, searchTerm, filtroEstado])
+
+  // Adicionar um novo cheque
+  const handleAddCheque = () => {
+    if (!novoCheque.numero || !novoCheque.beneficiario || novoCheque.valor <= 0) {
+      toast({
+        title: "Erro",
+        description: "Por favor, preencha todos os campos obrigatórios.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Garantir que o valor seja um número válido
+    const valorCheque = isNaN(Number(novoCheque.valor)) ? 0 : Number(novoCheque.valor)
+
+    const novoChequeObj = {
+      id: `cheque-${Date.now()}`,
+      numero: novoCheque.numero,
+      valor: valorCheque, // Usar o valor validado
+      beneficiario: novoCheque.beneficiario,
+      dataEmissao: novoCheque.dataEmissao || new Date(),
+      dataCompensacao: null,
+      estado: "pendente" as const,
+      banco: novoCheque.banco,
+    }
+
+    // Adicionar o novo cheque à lista
+    const chequesAtualizados = [...cheques, novoChequeObj]
+    setCheques(chequesAtualizados)
+
+    // Salvar no localStorage
+    localStorage.setItem("cheques", JSON.stringify(chequesAtualizados))
+
+    // Limpar o formulário e fechar o diálogo
+    setNovoCheque({
+      numero: "",
+      valor: 0,
+      beneficiario: "",
+      dataEmissao: new Date(),
+      banco: "BIM",
+    })
+    setIsAddDialogOpen(false)
+
+    toast({
+      title: "Cheque adicionado",
+      description: `O cheque nº ${novoChequeObj.numero} foi adicionado com sucesso.`,
+    })
+  }
+
+  // Compensar um cheque
+  const handleCompensarCheque = () => {
+    if (!chequeSelecionado || !dataCompensacao) {
+      toast({
+        title: "Erro",
+        description: "Por favor, selecione uma data de compensação válida.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Atualizar o cheque selecionado
+    const chequesAtualizados = cheques.map((cheque) =>
+      cheque.id === chequeSelecionado.id ? { ...cheque, estado: "compensado" as const, dataCompensacao } : cheque,
+    )
+    setCheques(chequesAtualizados)
+
+    // Salvar no localStorage
+    localStorage.setItem("cheques", JSON.stringify(chequesAtualizados))
+
+    // Fechar o diálogo
+    setIsCompensarDialogOpen(false)
+    setChequeSelecionado(null)
+
+    toast({
+      title: "Cheque compensado",
+      description: `O cheque nº ${chequeSelecionado.numero} foi marcado como compensado.`,
+    })
+
+    // Adicionar à reconciliação bancária
+    adicionarTransacaoBancaria(chequeSelecionado, dataCompensacao)
+  }
+
+  // Adicionar transação bancária para o cheque compensado
+  const adicionarTransacaoBancaria = (cheque: Cheque, dataCompensacao: Date) => {
+    // Carregar transações existentes
+    const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
+    let transacoes = []
+
+    if (transacoesArmazenadas) {
+      try {
+        transacoes = JSON.parse(transacoesArmazenadas)
+      } catch (error) {
+        console.error("Erro ao carregar transações bancárias:", error)
+        transacoes = []
+      }
+    }
+
+    // Verificar se já existe uma transação para este cheque
+    const transacaoExistente = transacoes.find((t: any) => t.chequeId === cheque.id)
+
+    if (transacaoExistente) {
+      // Atualizar a transação existente
+      const transacoesAtualizadas = transacoes.map((t: any) =>
+        t.chequeId === cheque.id
+          ? {
+              ...t,
+              data: dataCompensacao,
+              reconciliado: true,
+            }
+          : t,
+      )
+      localStorage.setItem("transacoesBancarias", JSON.stringify(transacoesAtualizadas))
+    } else {
+      // Criar uma nova transação
+      const novaTransacao = {
+        id: `cheque-${cheque.id}`,
+        data: dataCompensacao,
+        descricao: `Cheque nº ${cheque.numero} - ${cheque.beneficiario}`,
+        valor: cheque.valor,
+        tipo: "debito",
+        reconciliado: true,
+        chequeId: cheque.id,
+        chequeNumero: cheque.numero,
+        pagamentoId: cheque.pagamentoId,
+        metodo: "cheque",
+      }
+
+      // Adicionar a nova transação
+      transacoes.push(novaTransacao)
+      localStorage.setItem("transacoesBancarias", JSON.stringify(transacoes))
+    }
+  }
+
+  // Cancelar um cheque
+  const handleCancelarCheque = (chequeId: string) => {
+    // Atualizar o cheque selecionado
+    const chequesAtualizados = cheques.map((cheque) =>
+      cheque.id === chequeId ? { ...cheque, estado: "cancelado" as const } : cheque,
+    )
+    setCheques(chequesAtualizados)
+
+    // Salvar no localStorage
+    localStorage.setItem("cheques", JSON.stringify(chequesAtualizados))
+
+    toast({
+      title: "Cheque cancelado",
+      description: `O cheque foi marcado como cancelado.`,
+    })
+  }
+
+  // Exportar para Excel
+  const handleExportExcel = () => {
+    try {
+      // Criar os dados para o CSV
+      const headers = [
+        "Número",
+        "Beneficiário",
+        "Valor (MZN)",
+        "Banco",
+        "Data de Emissão",
+        "Data de Compensação",
+        "Estado",
+        "Referência de Pagamento",
+        "Fornecedor",
+      ]
+
+      const rows = filteredCheques.map((cheque) => [
+        cheque.numero,
+        cheque.beneficiario,
+        typeof cheque.valor === "number" ? cheque.valor.toFixed(2) : "0.00",
+        cheque.banco || "Não especificado",
+        format(new Date(cheque.dataEmissao), "dd/MM/yyyy", { locale: pt }),
+        cheque.dataCompensacao
+          ? format(new Date(cheque.dataCompensacao), "dd/MM/yyyy", { locale: pt })
+          : "Não compensado",
+        cheque.estado === "pendente" ? "Pendente" : cheque.estado === "compensado" ? "Compensado" : "Cancelado",
+        cheque.pagamentoReferencia || "",
+        cheque.fornecedorNome || "",
+      ])
+
+      // Criar o conteúdo CSV
+      const csvContent = [
+        headers.join(","),
+        ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+      ].join("\n")
+
+      // Criar um Blob com o conteúdo CSV
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+      const url = URL.createObjectURL(blob)
+
+      // Criar um link para download
+      const link = document.createElement("a")
+      link.href = url
+      link.setAttribute("download", `controlo_cheques_${format(new Date(), "yyyyMMdd")}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      toast({
+        title: "Excel exportado",
+        description: "Os dados dos cheques foram exportados para CSV com sucesso.",
+      })
+    } catch (error) {
+      console.error("Erro ao exportar para Excel:", error)
+      toast({
+        title: "Erro na exportação",
+        description: "Ocorreu um erro ao exportar os dados. Por favor, tente novamente.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Imprimir relatório
   const handlePrint = () => {
     window.print()
   }
 
-  const handleExportPDF = () => {
-    const doc = new jsPDF()
-    doc.text("Controlo de Cheques", 14, 15)
-    doc.autoTable({
-      head: [["Número", "Valor", "Beneficiário", "Data de Emissão", "Data de Compensação", "Estado", "Pagamento"]],
-      body: cheques.map((cheque) => [
-        cheque.numero,
-        `${cheque.valor.toFixed(2)} MT`,
-        cheque.beneficiario,
-        format(cheque.dataEmissao, "dd/MM/yyyy", { locale: pt }),
-        cheque.dataCompensacao ? format(cheque.dataCompensacao, "dd/MM/yyyy", { locale: pt }) : "-",
-        cheque.estado,
-        cheque.pagamentoReferencia || "-",
-      ]),
-    })
-    doc.save("controlo-cheques.pdf")
-  }
+  // Calcular totais
+  const totalPendente = filteredCheques
+    .filter((cheque) => cheque.estado === "pendente")
+    .reduce((acc, cheque) => acc + (Number(cheque.valor) || 0), 0)
 
-  const handleExportExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(
-      cheques.map((cheque) => ({
-        Número: cheque.numero,
-        Valor: cheque.valor,
-        Beneficiário: cheque.beneficiario,
-        "Data de Emissão": format(cheque.dataEmissao, "dd/MM/yyyy", { locale: pt }),
-        "Data de Compensação": cheque.dataCompensacao
-          ? format(cheque.dataCompensacao, "dd/MM/yyyy", { locale: pt })
-          : "-",
-        Estado: cheque.estado,
-        Pagamento: cheque.pagamentoReferencia || "-",
-      })),
-    )
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Cheques")
+  const totalCompensado = filteredCheques
+    .filter((cheque) => cheque.estado === "compensado")
+    .reduce((acc, cheque) => acc + (Number(cheque.valor) || 0), 0)
 
-    // Generate Excel file and trigger download
-    const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" })
-    const data = new Blob([excelBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
-    const url = window.URL.createObjectURL(data)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = "controlo-cheques.xlsx"
-    link.click()
-    window.URL.revokeObjectURL(url)
-  }
-
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [newCheque, setNewCheque] = useState<Partial<Cheque>>({
-    estado: "pendente",
-  })
-  const [pagamentoSelecionadoId, setPagamentoSelecionadoId] = useState<string>("")
-
-  // Modificar a função handleAddCheque para salvar no localStorage
-  // Substitua a função handleAddCheque existente com esta versão:
-
-  const handleAddCheque = () => {
-    if (newCheque.numero && newCheque.valor && newCheque.beneficiario && newCheque.dataEmissao) {
-      // Verificar se um pagamento foi selecionado
-      let pagamentoReferencia = ""
-      let fornecedorNome = ""
-
-      if (pagamentoSelecionadoId && pagamentoSelecionadoId !== "none") {
-        const pagamentoSelecionado = pagamentosPendentes.find((p) => p.id === pagamentoSelecionadoId)
-        if (pagamentoSelecionado) {
-          pagamentoReferencia = pagamentoSelecionado.referencia
-          fornecedorNome = pagamentoSelecionado.fornecedorNome
-
-          // Se o valor do cheque não foi definido manualmente, usar o valor do pagamento
-          if (!newCheque.valor) {
-            newCheque.valor = pagamentoSelecionado.valor
-          }
-
-          // Se o beneficiário não foi definido manualmente, usar o nome do fornecedor
-          if (!newCheque.beneficiario) {
-            newCheque.beneficiario = pagamentoSelecionado.fornecedorNome
-          }
-        }
-      }
-
-      const chequeToAdd: Cheque = {
-        id: Date.now().toString(),
-        numero: newCheque.numero,
-        valor: newCheque.valor,
-        beneficiario: newCheque.beneficiario,
-        dataEmissao: newCheque.dataEmissao,
-        dataCompensacao: null,
-        estado: "pendente",
-        pagamentoId: pagamentoSelecionadoId !== "none" ? pagamentoSelecionadoId : undefined,
-        pagamentoReferencia: pagamentoReferencia || undefined,
-        fornecedorNome: fornecedorNome || undefined,
-      }
-
-      const chequesAtualizados = [...cheques, chequeToAdd]
-      setCheques(chequesAtualizados)
-
-      // Salvar no localStorage
-      localStorage.setItem("cheques", JSON.stringify(chequesAtualizados))
-
-      setIsAddDialogOpen(false)
-      setNewCheque({ estado: "pendente" })
-      setPagamentoSelecionadoId("")
-
-      toast({
-        title: "Cheque adicionado",
-        description: "O novo cheque foi adicionado com sucesso.",
-      })
-
-      // Se um pagamento foi selecionado, atualizar o método de pagamento para "cheque"
-      if (pagamentoSelecionadoId && pagamentoSelecionadoId !== "none") {
-        const pagamentoSelecionado = pagamentosPendentes.find((p) => p.id === pagamentoSelecionadoId)
-        if (pagamentoSelecionado) {
-          atualizarPagamento(pagamentoSelecionado.fornecedorId, {
-            ...pagamentoSelecionado,
-            metodo: "cheque",
-            observacoes: `${pagamentoSelecionado.observacoes ? pagamentoSelecionado.observacoes + " | " : ""}Cheque nº ${newCheque.numero}`,
-          })
-
-          toast({
-            title: "Pagamento atualizado",
-            description: `O pagamento ${pagamentoSelecionado.referencia} foi associado ao cheque.`,
-          })
-        }
-      }
-
-      return chequeToAdd
+  // Obter badge de estado
+  const getEstadoBadge = (estado: string) => {
+    switch (estado) {
+      case "pendente":
+        return (
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+            Pendente
+          </Badge>
+        )
+      case "compensado":
+        return (
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            Compensado
+          </Badge>
+        )
+      case "cancelado":
+        return (
+          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+            Cancelado
+          </Badge>
+        )
+      default:
+        return <Badge variant="outline">{estado}</Badge>
     }
-    return null
-  }
-
-  // Expor a função handleAddCheque e o estado para o componente pai
-  useEffect(() => {
-    // Expor as funções para o objeto global window para permitir comunicação entre componentes
-    // @ts-ignore
-    window.controloCheques = {
-      handleAddCheque: (chequeData: any) => {
-        // Configurar os dados do cheque
-        setNewCheque({
-          numero: chequeData.numero,
-          dataEmissao: chequeData.dataEmissao || new Date(),
-          valor: chequeData.valor,
-          beneficiario: chequeData.beneficiario,
-          estado: "pendente",
-        })
-
-        // Configurar o pagamento selecionado
-        if (chequeData.pagamentoId) {
-          setPagamentoSelecionadoId(chequeData.pagamentoId)
-        }
-
-        // Chamar a função de adicionar cheque
-        return handleAddCheque()
-      },
-      setNewCheque,
-      setPagamentoSelecionadoId,
-      setIsAddDialogOpen,
-    }
-  }, [newCheque, pagamentoSelecionadoId, cheques])
-
-  // Modificar a função handleCompensarCheque para salvar no localStorage
-  // Substitua a função handleCompensarCheque existente com esta versão:
-
-  const handleCompensarCheque = (id: string) => {
-    const chequesAtualizados = cheques.map((cheque) => {
-      if (cheque.id === id) {
-        // Marcar o cheque como compensado
-        const chequeAtualizado = {
-          ...cheque,
-          estado: "compensado",
-          dataCompensacao: new Date(),
-        }
-
-        // Se o cheque estiver associado a um pagamento, marcar o pagamento como pago
-        if (cheque.pagamentoId) {
-          const pagamento = pagamentosPendentes.find((p) => p.id === cheque.pagamentoId)
-          if (pagamento) {
-            atualizarPagamento(pagamento.fornecedorId, {
-              ...pagamento,
-              estado: "pago",
-              dataPagamento: new Date(),
-              observacoes: `${pagamento.observacoes ? pagamento.observacoes + " | " : ""}Cheque nº ${cheque.numero} compensado em ${format(new Date(), "dd/MM/yyyy", { locale: pt })}`,
-            })
-
-            toast({
-              title: "Pagamento atualizado",
-              description: `O pagamento ${pagamento.referencia} foi marcado como pago.`,
-            })
-          }
-        }
-
-        // Adicionar uma transação bancária para este cheque
-        adicionarTransacaoBancaria(chequeAtualizado)
-
-        return chequeAtualizado
-      }
-      return cheque
-    })
-
-    setCheques(chequesAtualizados)
-
-    // Salvar no localStorage
-    localStorage.setItem("cheques", JSON.stringify(chequesAtualizados))
-
-    toast({
-      title: "Cheque compensado",
-      description: "O cheque foi marcado como compensado.",
-    })
-  }
-
-  // Adicionar função para criar uma transação bancária a partir de um cheque
-  // Adicionar após a função handleCompensarCheque:
-
-  const adicionarTransacaoBancaria = (cheque: Cheque) => {
-    // Verificar se já existe uma transação para este cheque
-    const transacoesArmazenadas = localStorage.getItem("transacoesBancarias")
-    if (transacoesArmazenadas) {
-      try {
-        const transacoesParsed = JSON.parse(transacoesArmazenadas)
-
-        // Verificar se já existe uma transação para este cheque
-        const transacaoExistente = transacoesParsed.find((t: any) => t.chequeId === cheque.id)
-        if (transacaoExistente) {
-          return // Não adicionar duplicada
-        }
-
-        // Adicionar nova transação
-        const novaTransacao = {
-          id: `cheque-${cheque.id}`,
-          data: cheque.dataCompensacao || new Date(),
-          descricao: `Cheque nº ${cheque.numero} - ${cheque.beneficiario}`,
-          valor: cheque.valor,
-          tipo: "debito",
-          reconciliado: Boolean(cheque.pagamentoId),
-          pagamentoId: cheque.pagamentoId,
-          chequeId: cheque.id,
-          chequeNumero: cheque.numero,
-          metodo: "cheque",
-        }
-
-        const transacoesAtualizadas = [...transacoesParsed, novaTransacao]
-        localStorage.setItem("transacoesBancarias", JSON.stringify(transacoesAtualizadas))
-      } catch (error) {
-        console.error("Erro ao processar transações bancárias:", error)
-
-        // Se houver erro, criar nova lista
-        const novaTransacao = [
-          {
-            id: `cheque-${cheque.id}`,
-            data: cheque.dataCompensacao || new Date(),
-            descricao: `Cheque nº ${cheque.numero} - ${cheque.beneficiario}`,
-            valor: cheque.valor,
-            tipo: "debito",
-            reconciliado: Boolean(cheque.pagamentoId),
-            pagamentoId: cheque.pagamentoId,
-            chequeId: cheque.id,
-            chequeNumero: cheque.numero,
-            metodo: "cheque",
-          },
-        ]
-        localStorage.setItem("transacoesBancarias", JSON.stringify(novaTransacao))
-      }
-    } else {
-      // Não existe lista de transações, criar nova
-      const novaTransacao = [
-        {
-          id: `cheque-${cheque.id}`,
-          data: cheque.dataCompensacao || new Date(),
-          descricao: `Cheque nº ${cheque.numero} - ${cheque.beneficiario}`,
-          valor: cheque.valor,
-          tipo: "debito",
-          reconciliado: Boolean(cheque.pagamentoId),
-          pagamentoId: cheque.pagamentoId,
-          chequeId: cheque.id,
-          chequeNumero: cheque.numero,
-          metodo: "cheque",
-        },
-      ]
-      localStorage.setItem("transacoesBancarias", JSON.stringify(novaTransacao))
-    }
-  }
-
-  // Modificar a função handleDeleteCheque para salvar no localStorage
-  // Substitua a função handleDeleteCheque existente com esta versão:
-
-  const handleDeleteCheque = (id: string) => {
-    const chequesAtualizados = cheques.filter((cheque) => cheque.id !== id)
-    setCheques(chequesAtualizados)
-
-    // Salvar no localStorage
-    localStorage.setItem("cheques", JSON.stringify(chequesAtualizados))
-
-    toast({
-      title: "Cheque eliminado",
-      description: "O cheque foi removido com sucesso.",
-    })
   }
 
   return (
     <PrintLayout title="Controlo de Cheques">
-      <Card>
-        <CardHeader className="bg-red-600 text-white">
+      <div className="space-y-4">
+        <CardHeader className="bg-gray-100">
           <div className="flex justify-between items-center">
             <div>
               <CardTitle>Controlo de Cheques</CardTitle>
-              <CardDescription>Gerencie os cheques emitidos e pendentes</CardDescription>
+              <CardDescription>Gerencie os cheques emitidos</CardDescription>
             </div>
             <div className="space-x-2">
               <Button onClick={handlePrint} className="print:hidden bg-gray-200 text-gray-800 hover:bg-gray-300">
                 <Printer className="mr-2 h-4 w-4" />
                 Imprimir
               </Button>
-              <Button onClick={handleExportPDF} className="print:hidden bg-gray-200 text-gray-800 hover:bg-gray-300">
-                <FileDown className="mr-2 h-4 w-4" />
-                Exportar PDF
-              </Button>
-              <Button onClick={handleExportExcel} className="print:hidden bg-gray-200 text-gray-800 hover:bg-gray-300">
-                <FileDown className="mr-2 h-4 w-4" />
-                Exportar Excel
-              </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-6">
-          <div className="mb-4">
+
+        <div className="flex flex-col sm:flex-row justify-between gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Pesquisar cheques..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Select value={filtroEstado} onValueChange={setFiltroEstado}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Filtrar por estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os estados</SelectItem>
+                  <SelectItem value="pendente">Pendentes</SelectItem>
+                  <SelectItem value="compensado">Compensados</SelectItem>
+                  <SelectItem value="cancelado">Cancelados</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-2">
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-              <DialogTrigger asChild>
-                <Button>Adicionar Novo Cheque</Button>
-              </DialogTrigger>
-              <DialogContent>
+              <Button onClick={() => setIsAddDialogOpen(true)} className="bg-gray-200 text-gray-800 hover:bg-gray-300">
+                <Plus className="mr-2 h-4 w-4" />
+                Novo Cheque
+              </Button>
+              <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
                   <DialogTitle>Adicionar Novo Cheque</DialogTitle>
-                  <DialogDescription>Preencha os detalhes do novo cheque</DialogDescription>
+                  <DialogDescription>Preencha os detalhes do cheque a ser adicionado.</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="pagamento" className="text-right">
-                      Pagamento (opcional)
-                    </Label>
-                    <Select value={pagamentoSelecionadoId} onValueChange={(value) => setPagamentoSelecionadoId(value)}>
-                      <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Selecionar pagamento (opcional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nenhum pagamento</SelectItem>
-                        {pagamentosPendentes.map((pagamento) => (
-                          <SelectItem key={pagamento.id} value={pagamento.id}>
-                            {pagamento.referencia} - {pagamento.fornecedorNome} - {pagamento.valor.toFixed(2)} MT
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="numero" className="text-right">
                       Número
                     </Label>
                     <Input
                       id="numero"
-                      value={newCheque.numero || ""}
-                      onChange={(e) => setNewCheque({ ...newCheque, numero: e.target.value })}
+                      value={novoCheque.numero}
+                      onChange={(e) => setNovoCheque({ ...novoCheque, numero: e.target.value })}
                       className="col-span-3"
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="valor" className="text-right">
-                      Valor
+                      Valor (MT)
                     </Label>
                     <Input
                       id="valor"
                       type="number"
-                      value={newCheque.valor || ""}
-                      onChange={(e) => setNewCheque({ ...newCheque, valor: Number(e.target.value) })}
-                      className="col-span-3"
-                      placeholder={
-                        pagamentoSelecionadoId
-                          ? `${pagamentosPendentes.find((p) => p.id === pagamentoSelecionadoId)?.valor.toFixed(2) || ""} MT`
-                          : ""
+                      min="0"
+                      step="0.01"
+                      value={isNaN(novoCheque.valor) ? "" : novoCheque.valor}
+                      onChange={(e) =>
+                        setNovoCheque({
+                          ...novoCheque,
+                          valor: e.target.value === "" ? 0 : Number(e.target.value),
+                        })
                       }
+                      className="col-span-3"
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
@@ -477,14 +453,20 @@ export function ControloCheques() {
                     </Label>
                     <Input
                       id="beneficiario"
-                      value={newCheque.beneficiario || ""}
-                      onChange={(e) => setNewCheque({ ...newCheque, beneficiario: e.target.value })}
+                      value={novoCheque.beneficiario}
+                      onChange={(e) => setNovoCheque({ ...novoCheque, beneficiario: e.target.value })}
                       className="col-span-3"
-                      placeholder={
-                        pagamentoSelecionadoId
-                          ? pagamentosPendentes.find((p) => p.id === pagamentoSelecionadoId)?.fornecedorNome || ""
-                          : ""
-                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="banco" className="text-right">
+                      Banco
+                    </Label>
+                    <Input
+                      id="banco"
+                      value={novoCheque.banco}
+                      onChange={(e) => setNovoCheque({ ...novoCheque, banco: e.target.value })}
+                      className="col-span-3"
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
@@ -494,8 +476,8 @@ export function ControloCheques() {
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button variant="outline" className="col-span-3 justify-start text-left font-normal">
-                          {newCheque.dataEmissao ? (
-                            format(newCheque.dataEmissao, "dd/MM/yyyy", { locale: pt })
+                          {novoCheque.dataEmissao ? (
+                            format(novoCheque.dataEmissao, "dd/MM/yyyy", { locale: pt })
                           ) : (
                             <span>Selecionar data</span>
                           )}
@@ -504,8 +486,8 @@ export function ControloCheques() {
                       <PopoverContent className="w-auto p-0">
                         <Calendar
                           mode="single"
-                          selected={newCheque.dataEmissao}
-                          onSelect={(date) => setNewCheque({ ...newCheque, dataEmissao: date })}
+                          selected={novoCheque.dataEmissao}
+                          onSelect={(date) => setNovoCheque({ ...novoCheque, dataEmissao: date })}
                           initialFocus
                         />
                       </PopoverContent>
@@ -513,84 +495,164 @@ export function ControloCheques() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button onClick={handleAddCheque}>Adicionar Cheque</Button>
+                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={handleAddCheque} className="bg-red-600 hover:bg-red-700">
+                    Adicionar Cheque
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            <Button onClick={handleExportExcel} className="bg-gray-200 text-gray-800 hover:bg-gray-300">
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Exportar
+            </Button>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-red-600">
-                <TableHead className="font-semibold text-white">Número</TableHead>
-                <TableHead className="font-semibold text-white">Valor</TableHead>
-                <TableHead className="font-semibold text-white">Beneficiário</TableHead>
-                <TableHead className="font-semibold text-white">Data de Emissão</TableHead>
-                <TableHead className="font-semibold text-white">Data de Compensação</TableHead>
-                <TableHead className="font-semibold text-white">Estado</TableHead>
-                <TableHead className="font-semibold text-white">Pagamento</TableHead>
-                <TableHead className="font-semibold text-white">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cheques.map((cheque, index) => (
-                <TableRow key={cheque.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                  <TableCell>{cheque.numero}</TableCell>
-                  <TableCell>{cheque.valor.toFixed(2)} MT</TableCell>
-                  <TableCell>{cheque.beneficiario}</TableCell>
-                  <TableCell>{format(cheque.dataEmissao, "dd/MM/yyyy", { locale: pt })}</TableCell>
-                  <TableCell>
-                    {cheque.dataCompensacao ? format(cheque.dataCompensacao, "dd/MM/yyyy", { locale: pt }) : "-"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        cheque.estado === "pendente"
-                          ? "bg-yellow-50 text-yellow-700 border-yellow-200"
-                          : cheque.estado === "compensado"
-                            ? "bg-green-50 text-green-700 border-green-200"
-                            : "bg-gray-50 text-gray-700 border-gray-200"
-                      }
-                    >
-                      {cheque.estado.charAt(0).toUpperCase() + cheque.estado.slice(1)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {cheque.pagamentoReferencia ? (
-                      <div className="flex flex-col">
-                        <span className="font-medium">{cheque.pagamentoReferencia}</span>
-                        {cheque.fornecedorNome && (
-                          <span className="text-xs text-gray-500">{cheque.fornecedorNome}</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Total de Cheques</h3>
+            <p className="text-2xl font-bold">{filteredCheques.length}</p>
+          </div>
+          <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Valor Pendente</h3>
+            <p className="text-2xl font-bold text-yellow-600">
+              {typeof totalPendente === "number" ? totalPendente.toFixed(2) : "0.00"} MZN
+            </p>
+          </div>
+          <div className="bg-white p-4 rounded-lg border shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Valor Compensado</h3>
+            <p className="text-2xl font-bold text-green-600">
+              {typeof totalCompensado === "number" ? totalCompensado.toFixed(2) : "0.00"} MZN
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-md border">
+          {filteredCheques.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-gray-500">Nenhum cheque encontrado.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-red-600 text-white">
+                  <TableHead className="font-semibold text-white">Número</TableHead>
+                  <TableHead className="font-semibold text-white">Beneficiário</TableHead>
+                  <TableHead className="font-semibold text-white text-right">Valor</TableHead>
+                  <TableHead className="font-semibold text-white">Banco</TableHead>
+                  <TableHead className="font-semibold text-white">Data de Emissão</TableHead>
+                  <TableHead className="font-semibold text-white">Data de Compensação</TableHead>
+                  <TableHead className="font-semibold text-white">Estado</TableHead>
+                  <TableHead className="font-semibold text-white">Referência</TableHead>
+                  <TableHead className="font-semibold text-white text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredCheques.map((cheque, index) => (
+                  <TableRow key={cheque.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <TableCell className="font-medium">{cheque.numero}</TableCell>
+                    <TableCell>{cheque.beneficiario}</TableCell>
+                    <TableCell className="text-right">
+                      {typeof cheque.valor === "number" ? cheque.valor.toFixed(2) : "0.00"} MZN
+                    </TableCell>
+                    <TableCell>{cheque.banco || "Não especificado"}</TableCell>
+                    <TableCell>{format(new Date(cheque.dataEmissao), "dd/MM/yyyy", { locale: pt })}</TableCell>
+                    <TableCell>
+                      {cheque.dataCompensacao
+                        ? format(new Date(cheque.dataCompensacao), "dd/MM/yyyy", { locale: pt })
+                        : "-"}
+                    </TableCell>
+                    <TableCell>{getEstadoBadge(cheque.estado)}</TableCell>
+                    <TableCell>
+                      {cheque.pagamentoReferencia ? (
+                        <div>
+                          <p className="text-sm font-medium">{cheque.pagamentoReferencia}</p>
+                          {cheque.fornecedorNome && <p className="text-xs text-gray-500">{cheque.fornecedorNome}</p>}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        {cheque.estado === "pendente" && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 border-green-200 text-green-700 hover:bg-green-50"
+                              onClick={() => {
+                                setChequeSelecionado(cheque)
+                                setDataCompensacao(new Date())
+                                setIsCompensarDialogOpen(true)
+                              }}
+                            >
+                              <Check className="mr-1 h-4 w-4" />
+                              Compensar
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 border-red-200 text-red-700 hover:bg-red-50"
+                              onClick={() => handleCancelarCheque(cheque.id)}
+                            >
+                              <X className="mr-1 h-4 w-4" />
+                              Cancelar
+                            </Button>
+                          </>
                         )}
                       </div>
-                    ) : (
-                      "-"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {cheque.estado === "pendente" && (
-                      <Button
-                        onClick={() => handleCompensarCheque(cheque.id)}
-                        className="bg-green-500 text-white hover:bg-green-600"
-                      >
-                        Compensar
-                      </Button>
-                    )}
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDeleteCheque(cheque.id)}
-                      className="ml-2"
-                    >
-                      <Trash2 className="h-4 w-4" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        <Dialog open={isCompensarDialogOpen} onOpenChange={setIsCompensarDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Compensar Cheque</DialogTitle>
+              <DialogDescription>
+                Informe a data de compensação do cheque nº {chequeSelecionado?.numero}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="dataCompensacao" className="text-right">
+                  Data de Compensação
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="col-span-3 justify-start text-left font-normal">
+                      {dataCompensacao ? (
+                        format(dataCompensacao, "dd/MM/yyyy", { locale: pt })
+                      ) : (
+                        <span>Selecionar data</span>
+                      )}
                     </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar mode="single" selected={dataCompensacao} onSelect={setDataCompensacao} initialFocus />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCompensarDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleCompensarCheque} className="bg-red-600 hover:bg-red-700">
+                Confirmar Compensação
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </PrintLayout>
   )
 }

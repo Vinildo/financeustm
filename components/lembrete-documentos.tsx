@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/use-toast"
-import { FileCheck, AlertTriangle } from "lucide-react"
+import { FileCheck, AlertTriangle, Percent } from "lucide-react"
 import { format } from "date-fns"
 import { pt } from "date-fns/locale"
 
@@ -24,6 +24,7 @@ interface LembreteDocumentosProps {
     fornecedorId: string
     fornecedorNome: string
     valor: number
+    valorPago?: number
     dataPagamento: Date | null
     facturaRecebida?: boolean
     reciboRecebido?: boolean
@@ -77,6 +78,8 @@ export function LembreteDocumentos({ pagamento, isOpen, onClose }: LembreteDocum
   const mostrarVD = pagamento.tipo === "vd"
   const mostrarRecibo = true // Recibo é sempre necessário
 
+  const isPagamentoParcial = pagamento.estado === "parcialmente pago"
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[500px]">
@@ -97,8 +100,9 @@ export function LembreteDocumentos({ pagamento, isOpen, onClose }: LembreteDocum
               <div>
                 <h4 className="text-sm font-medium text-yellow-800">Lembrete importante</h4>
                 <p className="text-sm text-yellow-700 mt-1">
-                  Todos os pagamentos devem ter a documentação fiscal completa. Certifique-se de receber e arquivar
-                  todos os documentos necessários.
+                  {isPagamentoParcial
+                    ? "Mesmo para pagamentos parciais, é necessário obter documentação fiscal. Certifique-se de receber e arquivar todos os documentos necessários."
+                    : "Todos os pagamentos devem ter a documentação fiscal completa. Certifique-se de receber e arquivar todos os documentos necessários."}
                 </p>
               </div>
             </div>
@@ -119,12 +123,28 @@ export function LembreteDocumentos({ pagamento, isOpen, onClose }: LembreteDocum
                   {pagamento.valor.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })}
                 </span>
               </p>
+              {isPagamentoParcial && pagamento.valorPago && (
+                <p className="text-sm text-gray-600">
+                  Valor Pago:{" "}
+                  <span className="font-medium flex items-center">
+                    <Percent className="mr-1 h-3 w-3 text-purple-600" />
+                    {pagamento.valorPago.toLocaleString("pt-MZ", { style: "currency", currency: "MZN" })} (
+                    {Math.round((pagamento.valorPago / pagamento.valor) * 100)}%)
+                  </span>
+                </p>
+              )}
               <p className="text-sm text-gray-600">
                 Data de Pagamento:{" "}
                 <span className="font-medium">
                   {pagamento.dataPagamento
                     ? format(new Date(pagamento.dataPagamento), "dd/MM/yyyy", { locale: pt })
                     : "Não pago"}
+                </span>
+              </p>
+              <p className="text-sm text-gray-600">
+                Estado:{" "}
+                <span className={`font-medium ${isPagamentoParcial ? "text-purple-600" : "text-green-600"}`}>
+                  {isPagamentoParcial ? "Parcialmente Pago" : "Pago"}
                 </span>
               </p>
             </div>
@@ -154,6 +174,7 @@ export function LembreteDocumentos({ pagamento, isOpen, onClose }: LembreteDocum
                   />
                   <Label htmlFor="recibo" className="cursor-pointer">
                     Recibo recebido
+                    {isPagamentoParcial && <span className="text-xs text-purple-600 ml-1">(pagamento parcial)</span>}
                   </Label>
                 </div>
               )}

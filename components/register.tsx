@@ -27,11 +27,22 @@ export function Register({ onRegisterComplete }: RegisterProps) {
 
   // Update the handleRegister function to validate email
   const handleRegister = async () => {
-    // Validação básica
+    // Modificar a validação para incluir o email
     if (!username || !fullName || !email || !password || !confirmPassword) {
       toast({
         title: "Erro",
         description: "Por favor, preencha todos os campos.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      toast({
+        title: "Erro",
+        description: "Por favor, insira um email válido.",
         variant: "destructive",
       })
       return
@@ -48,30 +59,12 @@ export function Register({ onRegisterComplete }: RegisterProps) {
 
     setIsLoading(true)
     try {
-      // Criar o novo usuário diretamente
-      const newUser = {
-        id: Date.now().toString(),
-        username,
-        password,
-        fullName,
-        email,
-        role: formData.role,
-        isActive: true,
-        forcePasswordChange: false,
-      }
-
-      // Obter usuários existentes do localStorage
-      const existingUsers = JSON.parse(localStorage.getItem("users") || "[]")
-
-      // Adicionar o novo usuário
-      const updatedUsers = [...existingUsers, newUser]
-
-      // Salvar no localStorage
-      localStorage.setItem("users", JSON.stringify(updatedUsers))
+      // Registrar usuário usando o hook useSupabaseAuth
+      await register(username, password, email, fullName)
 
       toast({
         title: "Sucesso",
-        description: "Usuário registrado com sucesso.",
+        description: "Administrador registrado com sucesso. Você pode fazer login agora.",
       })
 
       onRegisterComplete()
