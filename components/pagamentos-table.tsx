@@ -79,7 +79,6 @@ import {
   inicializarSistemaCheques,
 } from "@/lib/cheque-utils"
 
-// Adicione este código no início do componente PagamentosTable
 export function PagamentosTable() {
   // Inicializar o sistema de cheques
   useEffect(() => {
@@ -1404,7 +1403,7 @@ export function PagamentosTable() {
     if (!detalhesPagamentoParcial.valor || detalhesPagamentoParcial.valor <= 0) {
       toast({
         title: "Erro",
-        description: "O valor do pagamento parcial deve ser maior que zero.",
+        description: "O valor do pagamento parcial deve ser maior que zero",
         variant: "destructive",
       })
       return
@@ -1471,19 +1470,18 @@ export function PagamentosTable() {
       updatePagamento(pagamentoParaPagamentoParcial.fornecedorId, pagamentoAtualizado)
 
       // Adicionar à reconciliação bancária se for transferência ou cheque
-      if (detalhesPagamentoParcial.metodo === "transferência" || detalhesPagamentoParcial.metodo === "cheque") {
+      if (detalhesPagamentoParcial.metodo === "transferência") {
         const transacao = {
           id: `trans-parcial-${Date.now()}`,
           data: detalhesPagamentoParcial.dataPagamento,
-          descricao: `Pagamento parcial (${detalhesPagamentoParcial.metodo}) - ${pagamentoParaPagamentoParcial.fornecedorNome} - ${pagamentoParaPagamentoParcial.referencia}`,
+          descricao: `Pagamento parcial (transferência) - ${pagamentoParaPagamentoParcial.fornecedorNome} - ${pagamentoParaPagamentoParcial.referencia}`,
           valor: detalhesPagamentoParcial.valor,
           tipo: "debito",
           reconciliado: false,
           pagamentoId: pagamentoParaPagamentoParcial.id,
-          metodo: detalhesPagamentoParcial.metodo === "transferência" ? "transferencia" : "cheque",
+          metodo: "transferencia",
           origem: "manual",
-          observacoes:
-            detalhesPagamentoParcial.observacoes || `Pagamento parcial via ${detalhesPagamentoParcial.metodo}`,
+          observacoes: detalhesPagamentoParcial.observacoes || `Pagamento parcial via transferência bancária`,
           referencia: detalhesPagamentoParcial.referencia || pagamentoParaPagamentoParcial.referencia,
         }
 
@@ -1505,6 +1503,12 @@ export function PagamentosTable() {
 
         // Salvar no localStorage
         localStorage.setItem("transacoesBancarias", JSON.stringify(transacoes))
+      } else if (detalhesPagamentoParcial.metodo === "cheque") {
+        // Lógica para cheque (a ser implementada)
+        console.log("Implementar lógica para cheque")
+      } else if (detalhesPagamentoParcial.metodo === "fundo de maneio") {
+        // Lógica para fundo de maneio (a ser implementada)
+        console.log("Implementar lógica para fundo de maneio")
       }
 
       // Fechar o diálogo e limpar os estados
@@ -1513,7 +1517,7 @@ export function PagamentosTable() {
       setDetalhesPagamentoParcial({
         valor: 0,
         dataPagamento: new Date(),
-        metodo: "transferência",
+        metodo: "transferência" as "transferência" | "cheque" | "débito direto" | "fundo de maneio" | "outro",
         referencia: "",
         observacoes: "",
       })

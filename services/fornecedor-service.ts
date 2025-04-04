@@ -42,10 +42,10 @@ export class FornecedorService {
       const { data, error } = await supabase
         .from("fornecedores")
         .select(`
-          id,
-          nome,
-          pagamentos (*)
-        `)
+         id,
+         nome,
+         pagamentos (*)
+       `)
         .eq("id", id)
         .single()
 
@@ -59,7 +59,7 @@ export class FornecedorService {
       }
 
       console.log(`[FornecedorService] Fornecedor encontrado no Supabase:`, data ? "Sim" : "Não")
-      return data as Fornecedor
+      return data || null // Return null if data is null
     } catch (error) {
       console.error(`[FornecedorService] Erro ao buscar fornecedor com ID ${id}:`, error)
       // Fallback para o InMemoryStore em caso de erro

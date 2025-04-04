@@ -358,6 +358,46 @@ export function ExtratoFornecedor() {
 
   const totais = calcularTotais()
 
+  const getEstadoBadge = (estado: string, percentualPago: number) => {
+    switch (estado) {
+      case "pendente":
+        return (
+          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+            Pendente
+          </Badge>
+        )
+      case "pago":
+        return (
+          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            Pago
+          </Badge>
+        )
+      case "parcialmente pago":
+        return (
+          <div className="flex flex-col gap-1">
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+              Parcial ({Math.round(percentualPago)}%)
+            </Badge>
+            <Progress value={percentualPago} className="h-1.5 w-full" />
+          </div>
+        )
+      case "atrasado":
+        return (
+          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+            Atrasado
+          </Badge>
+        )
+      case "cancelado":
+        return (
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+            Cancelado
+          </Badge>
+        )
+      default:
+        return <Badge variant="outline">{estado}</Badge>
+    }
+  }
+
   return (
     <PrintLayout title="Extrato de Fornecedor">
       <Card className="border-gray-300">
@@ -556,14 +596,14 @@ export function ExtratoFornecedor() {
                       <div className="overflow-x-auto">
                         <Table>
                           <TableHeader>
-                            <TableRow className="bg-gray-100">
-                              <TableHead className="font-semibold">Data</TableHead>
-                              <TableHead className="font-semibold">Documento</TableHead>
-                              <TableHead className="font-semibold">Descrição</TableHead>
-                              <TableHead className="font-semibold text-right">Valor</TableHead>
-                              <TableHead className="font-semibold text-right">Pagamento</TableHead>
-                              <TableHead className="font-semibold text-right">Saldo</TableHead>
-                              <TableHead className="font-semibold">Status</TableHead>
+                            <TableRow className="bg-red-600 text-white">
+                              <TableHead className="font-semibold text-white w-[120px]">Data</TableHead>
+                              <TableHead className="font-semibold text-white w-[150px]">Documento</TableHead>
+                              <TableHead className="font-semibold text-white w-[200px]">Descrição</TableHead>
+                              <TableHead className="font-semibold text-white w-[100px] text-right">Valor</TableHead>
+                              <TableHead className="font-semibold text-white w-[100px] text-right">Pagamento</TableHead>
+                              <TableHead className="font-semibold text-white w-[100px] text-right">Saldo</TableHead>
+                              <TableHead className="font-semibold text-white w-[120px]">Status</TableHead>
                               <TableHead className="font-semibold w-10"></TableHead>
                             </TableRow>
                           </TableHeader>
@@ -589,10 +629,10 @@ export function ExtratoFornecedor() {
                                       onOpenChange={() => toggleExpandido(pagamento.id)}
                                     >
                                       <TableRow className={index % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                                        <TableCell>
+                                        <TableCell className="w-[120px]">
                                           {format(new Date(pagamento.dataVencimento), "dd/MM/yyyy", { locale: pt })}
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="w-[150px]">
                                           <div className="flex items-center">
                                             <FileText className="h-3.5 w-3.5 mr-1 text-gray-500" />
                                             <span>
@@ -607,19 +647,19 @@ export function ExtratoFornecedor() {
                                           </div>
                                           <div className="text-xs text-gray-500">{pagamento.referencia}</div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="w-[200px]">
                                           <div className="font-medium">{pagamento.descricao || "Sem descrição"}</div>
                                           {pagamento.departamento && (
                                             <div className="text-xs text-gray-500">Dept: {pagamento.departamento}</div>
                                           )}
                                         </TableCell>
-                                        <TableCell className="text-right font-medium">
+                                        <TableCell className="w-[100px] text-right font-medium">
                                           {pagamento.valor.toLocaleString("pt-MZ", {
                                             style: "currency",
                                             currency: "MZN",
                                           })}
                                         </TableCell>
-                                        <TableCell className="text-right text-green-700">
+                                        <TableCell className="w-[100px] text-right text-green-700">
                                           {pagamento.valorPago > 0
                                             ? pagamento.valorPago.toLocaleString("pt-MZ", {
                                                 style: "currency",
@@ -632,14 +672,14 @@ export function ExtratoFornecedor() {
                                             </div>
                                           )}
                                         </TableCell>
-                                        <TableCell className="text-right font-medium text-red-700">
-                                          {pagamento.valorPendente.toLocaleString("pt-MZ", {
+                                        <TableCell className="w-[100px] text-right font-medium text-red-700">
+                                          {saldoAcumulado.toLocaleString("pt-MZ", {
                                             style: "currency",
                                             currency: "MZN",
                                           })}
                                         </TableCell>
-                                        <TableCell>
-                                          {getStatusBadge(pagamento.status, pagamento.percentualPago)}
+                                        <TableCell className="w-[120px]">
+                                          {getEstadoBadge(pagamento.estado, pagamento.percentualPago)}
                                         </TableCell>
                                         <TableCell>
                                           <CollapsibleTrigger asChild>
