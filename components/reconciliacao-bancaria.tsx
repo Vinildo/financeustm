@@ -67,7 +67,7 @@ type SortConfig = {
 
 export function ReconciliacaoBancaria() {
   // Removida a linha: const { isAvailable, isConnected, connectionError } = useSupabase()
-  const { fornecedores, atualizarPagamento } = useAppContext()
+  const { fornecedores, updatePagamento } = useAppContext()
   const [transacoes, setTransacoes] = useState<TransacaoBancaria[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [mesSelecionado, setMesSelecionado] = useState<Date>(startOfMonth(new Date()))
@@ -298,7 +298,7 @@ export function ReconciliacaoBancaria() {
           }
 
           // Atualizar o pagamento como pago
-          atualizarPagamento(pagamentoCorrespondente.fornecedorId, {
+          updatePagamento(pagamentoCorrespondente.fornecedorId, {
             ...pagamentoCorrespondente,
             estado: "pago",
             dataPagamento: transacao.data,
@@ -408,7 +408,7 @@ export function ReconciliacaoBancaria() {
         observacoes = `${observacoes ? observacoes + " | " : ""}Reconciliado com extrato bancário`
       }
 
-      atualizarPagamento(fornecedorId, {
+      updatePagamento(fornecedorId, {
         ...pagamento,
         estado: "pago",
         dataPagamento: transacao.data,
@@ -448,7 +448,7 @@ export function ReconciliacaoBancaria() {
     setTransacoes(transacoesAtualizadas)
 
     // Atualizar o pagamento de volta para pendente
-    atualizarPagamento(fornecedorId, {
+    updatePagamento(fornecedorId, {
       ...pagamento,
       estado: "pendente",
       dataPagamento: null,
