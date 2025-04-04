@@ -30,60 +30,25 @@ export const supabase = {
   from: (table: string) => {
     const client = getSupabase()
     if (!client) {
-      // Retornar um objeto mock que não faz nada
+      // Return a mock object that mimics the Supabase API structure
       return {
-        select: () => ({
-          eq: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
-          insert: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
-          update: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+        select: (columns?: string) => ({
+          eq: (column: string, value: any) =>
+            Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+          insert: (data: any) => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+          update: (data: any) => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
           delete: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
-          upsert: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
-          order: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+          upsert: (data: any) => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+          order: (column: string, options?: any) => ({
+            eq: (column: string, value: any) =>
+              Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+          }),
           single: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
         }),
-        auth: {
-          signIn: () => {
-            const client = getSupabase()
-            if (!client) {
-              return Promise.resolve({ data: null, error: new Error("Supabase não inicializado") })
-            }
-            return client.auth.signInWithPassword
-          },
-          signOut: () => {
-            const client = getSupabase()
-            if (!client) {
-              return Promise.resolve({ error: new Error("Supabase não inicializado") })
-            }
-            return client.auth.signOut()
-          },
-          onAuthStateChange: (callback: any) => {
-            const client = getSupabase()
-            if (!client) {
-              return { data: { subscription: { unsubscribe: () => {} } } }
-            }
-            return client.auth.onAuthStateChange(callback)
-          },
-        },
-        storage: {
-          from: (bucket: string) => {
-            const client = getSupabase()
-            if (!client) {
-              return {
-                upload: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
-                download: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
-                getPublicUrl: () => ({ data: { publicUrl: "" } }),
-              }
-            }
-            return client.storage.from(bucket)
-          },
-        },
-        rpc: (fn: string, params: any) => {
-          const client = getSupabase()
-          if (!client) {
-            return Promise.resolve({ data: null, error: new Error("Supabase não inicializado") })
-          }
-          return client.rpc(fn, params)
-        },
+        insert: (data: any) => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+        update: (data: any) => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+        delete: () => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
+        upsert: (data: any) => Promise.resolve({ data: null, error: new Error("Supabase não inicializado") }),
       }
     }
     return client.from(table)
